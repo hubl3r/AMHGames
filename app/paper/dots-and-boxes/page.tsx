@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { RotateCcw, Trophy, User, Users } from 'lucide-react'
+import { RotateCcw, Trophy } from 'lucide-react'
 
 type Difficulty = 'easy' | 'medium' | 'hard'
 type Mode = 'solo' | '2p' | '3p' | '4p'
@@ -20,7 +20,7 @@ const PLAYER_NAMES = ['', 'RED', 'BLUE', 'GREEN', 'ORANGE']
 export default function DotsAndBoxesPage() {
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [mode, setMode] = useState<Mode>('solo')
-  const [cellSize, setCellSize] = useState(62)
+  const [cellSize, setCellSize] = useState(68)
 
   const { rows, cols } = DIFFICULTIES[difficulty]
   const numPlayers = mode === 'solo' ? 2 : parseInt(mode[0])
@@ -35,10 +35,12 @@ export default function DotsAndBoxesPage() {
 
   const totalBoxes = rows * cols
 
+  // Bigger board that fills screen better
   const updateCellSize = useCallback(() => {
-    const maxW = Math.min(window.innerWidth - 60, 820)
-    const maxH = window.innerHeight - 460
-    setCellSize(Math.min(Math.floor(maxW / cols), Math.floor(maxH / rows), 72))
+    const maxW = Math.min(window.innerWidth - 48, 980)
+    const maxH = Math.min(window.innerHeight - 380, 680)
+    const size = Math.min(Math.floor(maxW / cols), Math.floor(maxH / rows), 96)
+    setCellSize(size)
   }, [rows, cols])
 
   useEffect(() => {
@@ -116,168 +118,123 @@ export default function DotsAndBoxesPage() {
       let scoreStr = `${maxScore}`
       if (winners.length === 1) {
         const winnerIdx = PLAYER_NAMES.indexOf(winners[0])
-        const otherTotal = newScoresArr.reduce((sum, s, i) => (i + 1 !== winnerIdx ? sum + s : sum), 0)
+        const otherTotal = newScoresArr.reduce((sum, s, i) => i + 1 !== winnerIdx ? sum + s : sum, 0)
         scoreStr = `${maxScore}–${otherTotal}`
       }
-      setWinnerText(
-        winners.length > 1
-          ? `TIE ${maxScore}–${maxScore}`
-          : `${winners[0]} WINS ${scoreStr}`
+      setWinnerText(winners.length > 1
+        ? `TIE ${maxScore}–${maxScore}`
+        : `${winners[0]} WINS ${scoreStr}`
       )
       return
     }
 
     if (completed === 0) {
-      const next = currentPlayer === numPlayers ? 1 : currentPlayer + 1
-      setCurrentPlayer(next)
+      setCurrentPlayer(currentPlayer === numPlayers ? 1 : currentPlayer + 1)
     }
   }
 
-  // AI (solo only – player 2)
+  // AI (solo only)
   const aiPlay = useCallback(() => {
     if (mode !== 'solo' || currentPlayer !== 2 || gameOver) return
 
     const getCompletingMoves = () => {
-      const moves: { type: 'h' | 'v'; row: number; col: number; completed: number }[] = []
-      // Horizontal
-      for (let r = 0; r <= rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (linesH[r][c] !== 0) continue
-          let tempH = linesH.map(x => [...x])
-          let tempV = linesV.map(x => [...x])
-          tempH[r][c] = 2
+      const moves: { type: 'h' | 'v'; row: number; col: number }[] = []
+      for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) {
+        if (linesH[r][c] === 0) {
+          let tH = linesH.map(x => [...x]); tH[r][c] = 2
           let comp = 0
-          if (r > 0 && isBoxComplete(r - 1, c, tempH, tempV)) comp++
-          if (r < rows && isBoxComplete(r, c, tempH, tempV)) comp++
-          if (comp > 0) moves.push({ type: 'h', row: r, col: c, completed: comp })
+          if (r > 0 && isBoxComplete(r-1,c,tH,linesV)) comp++
+          if (r < rows && isBoxComplete(r,c,tH,linesV)) comp++
+          if (comp) moves.push({type:'h',row:r,col:c})
         }
       }
-      // Vertical
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c <= cols; c++) {
-          if (linesV[r][c] !== 0) continue
-          let tempH = linesH.map(x => [...x])
-          let tempV = linesV.map(x => [...x])
-          tempV[r][c] = 2
+      for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) {
+        if (linesV[r][c] === 0) {
+          let tV = linesV.map(x => [...x]); tV[r][c] = 2
           let comp = 0
-          if (c > 0 && isBoxComplete(r, c - 1, tempH, tempV)) comp++
-          if (c < cols && isBoxComplete(r, c, tempH, tempV)) comp++
-          if (comp > 0) moves.push({ type: 'v', row: r, col: c, completed: comp })
+          if (c > 0 && isBoxComplete(r,c-1,linesH,tV)) comp++
+          if (c < cols && isBoxComplete(r,c,linesH,tV)) comp++
+          if (comp) moves.push({type:'v',row:r,col:c})
         }
       }
       return moves
     }
 
     let moves = getCompletingMoves()
-    if (moves.length > 0) {
-      const move = moves[Math.floor(Math.random() * moves.length)]
-      setTimeout(() => handleMove(move.type, move.row, move.col), 420)
+    if (moves.length) {
+      const m = moves[Math.floor(Math.random()*moves.length)]
+      setTimeout(() => handleMove(m.type, m.row, m.col), 380)
       return
     }
 
-    // Safe moves (no immediate box for opponent)
-    const safeMoves: { type: 'h' | 'v'; row: number; col: number }[] = []
-    const opponent = 1
+    // Safe moves (no immediate gift to opponent)
+    const safe: { type: 'h' | 'v'; row: number; col: number }[] = []
+    const opp = 1
 
-    // Horizontal safe
-    for (let r = 0; r <= rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (linesH[r][c] !== 0) continue
-        let tempH = linesH.map(x => [...x])
-        let tempV = linesV.map(x => [...x])
-        tempH[r][c] = 2
-        let givesAway = false
-
-        // check opponent horizontal
-        for (let or = 0; or <= rows && !givesAway; or++) {
-          for (let oc = 0; oc < cols && !givesAway; oc++) {
-            if (tempH[or][oc] === 0) {
-              let ch = tempH.map(x => [...x])
-              let cv = tempV.map(x => [...x])
-              ch[or][oc] = opponent
-              if ((or > 0 && isBoxComplete(or - 1, oc, ch, cv)) ||
-                  (or < rows && isBoxComplete(or, oc, ch, cv))) givesAway = true
-            }
-          }
+    for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) {
+      if (linesH[r][c] !== 0) continue
+      let tH = linesH.map(x => [...x]); tH[r][c] = 2
+      let gives = false
+      for (let or=0; or<=rows && !gives; or++) for (let oc=0; oc<cols && !gives; oc++) {
+        if (tH[or][oc]===0) {
+          let ch = tH.map(x=>[...x]); ch[or][oc]=opp
+          if ((or>0 && isBoxComplete(or-1,oc,ch,linesV)) || (or<rows && isBoxComplete(or,oc,ch,linesV))) gives=true
         }
-        // check opponent vertical
-        for (let or = 0; or < rows && !givesAway; or++) {
-          for (let oc = 0; oc <= cols && !givesAway; oc++) {
-            if (tempV[or][oc] === 0) {
-              let ch = tempH.map(x => [...x])
-              let cv = tempV.map(x => [...x])
-              cv[or][oc] = opponent
-              if ((oc > 0 && isBoxComplete(or, oc - 1, ch, cv)) ||
-                  (oc < cols && isBoxComplete(or, oc, ch, cv))) givesAway = true
-            }
-          }
-        }
-        if (!givesAway) safeMoves.push({ type: 'h', row: r, col: c })
       }
+      for (let or=0; or<rows && !gives; or++) for (let oc=0; oc<=cols && !gives; oc++) {
+        if (linesV[or][oc]===0) {
+          let ch = tH.map(x=>[...x]); let cv=linesV.map(x=>[...x]); cv[or][oc]=opp
+          if ((oc>0 && isBoxComplete(or,oc-1,ch,cv)) || (oc<cols && isBoxComplete(or,oc,ch,cv))) gives=true
+        }
+      }
+      if (!gives) safe.push({type:'h',row:r,col:c})
     }
 
-    // Vertical safe
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c <= cols; c++) {
-        if (linesV[r][c] !== 0) continue
-        let tempH = linesH.map(x => [...x])
-        let tempV = linesV.map(x => [...x])
-        tempV[r][c] = 2
-        let givesAway = false
-
-        for (let or = 0; or <= rows && !givesAway; or++) {
-          for (let oc = 0; oc < cols && !givesAway; oc++) {
-            if (tempH[or][oc] === 0) {
-              let ch = tempH.map(x => [...x])
-              let cv = tempV.map(x => [...x])
-              ch[or][oc] = opponent
-              if ((or > 0 && isBoxComplete(or - 1, oc, ch, cv)) ||
-                  (or < rows && isBoxComplete(or, oc, ch, cv))) givesAway = true
-            }
-          }
+    for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) {
+      if (linesV[r][c] !== 0) continue
+      let tV = linesV.map(x => [...x]); tV[r][c] = 2
+      let gives = false
+      for (let or=0; or<=rows && !gives; or++) for (let oc=0; oc<cols && !gives; oc++) {
+        if (linesH[or][oc]===0) {
+          let ch=linesH.map(x=>[...x]); ch[or][oc]=opp; let cv=tV.map(x=>[...x])
+          if ((or>0 && isBoxComplete(or-1,oc,ch,cv)) || (or<rows && isBoxComplete(or,oc,ch,cv))) gives=true
         }
-        for (let or = 0; or < rows && !givesAway; or++) {
-          for (let oc = 0; oc <= cols && !givesAway; oc++) {
-            if (tempV[or][oc] === 0) {
-              let ch = tempH.map(x => [...x])
-              let cv = tempV.map(x => [...x])
-              cv[or][oc] = opponent
-              if ((oc > 0 && isBoxComplete(or, oc - 1, ch, cv)) ||
-                  (oc < cols && isBoxComplete(or, oc, ch, cv))) givesAway = true
-            }
-          }
-        }
-        if (!givesAway) safeMoves.push({ type: 'v', row: r, col: c })
       }
+      for (let or=0; or<rows && !gives; or++) for (let oc=0; oc<=cols && !gives; oc++) {
+        if (tV[or][oc]===0) {
+          let ch=linesH.map(x=>[...x]); let cv=tV.map(x=>[...x]); cv[or][oc]=opp
+          if ((oc>0 && isBoxComplete(or,oc-1,ch,cv)) || (oc<cols && isBoxComplete(or,oc,ch,cv))) gives=true
+        }
+      }
+      if (!gives) safe.push({type:'v',row:r,col:c})
     }
 
-    if (safeMoves.length > 0) {
-      const move = safeMoves[Math.floor(Math.random() * safeMoves.length)]
-      setTimeout(() => handleMove(move.type, move.row, move.col), 420)
+    if (safe.length) {
+      const m = safe[Math.floor(Math.random()*safe.length)]
+      setTimeout(() => handleMove(m.type, m.row, m.col), 380)
       return
     }
 
-    // Random any remaining
-    const all: { type: 'h' | 'v'; row: number; col: number }[] = []
-    for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) if (linesH[r][c] === 0) all.push({ type: 'h', row: r, col: c })
-    for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) if (linesV[r][c] === 0) all.push({ type: 'v', row: r, col: c })
-
-    if (all.length > 0) {
-      const move = all[Math.floor(Math.random() * all.length)]
-      setTimeout(() => handleMove(move.type, move.row, move.col), 420)
+    // Random remaining
+    const all: any[] = []
+    for (let r=0;r<=rows;r++) for (let c=0;c<cols;c++) if (linesH[r][c]===0) all.push({type:'h',row:r,col:c})
+    for (let r=0;r<rows;r++) for (let c=0;c<=cols;c++) if (linesV[r][c]===0) all.push({type:'v',row:r,col:c})
+    if (all.length) {
+      const m = all[Math.floor(Math.random()*all.length)]
+      setTimeout(() => handleMove(m.type, m.row, m.col), 380)
     }
   }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols, handleMove])
 
   useEffect(() => {
     if (mode === 'solo' && currentPlayer === 2 && !gameOver) {
-      const t = setTimeout(aiPlay, 380)
+      const t = setTimeout(aiPlay, 360)
       return () => clearTimeout(t)
     }
   }, [currentPlayer, mode, gameOver, aiPlay])
 
   return (
     <div className="min-h-screen bg-[#0d1117] text-white pb-12">
-      <div className="max-w-4xl mx-auto px-4 pt-8">
+      <div className="max-w-5xl mx-auto px-4 pt-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-4">
             <span className="text-6xl">🔲</span>
@@ -287,130 +244,143 @@ export default function DotsAndBoxesPage() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
-          {(['easy', 'medium', 'hard'] as const).map(d => (
-            <motion.button
-              key={d}
-              onClick={() => { setDifficulty(d); setTimeout(initGame, 50) }}
-              className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest transition-all ${difficulty === d ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+        {/* Dropdowns - smaller & clean */}
+        <div className="flex justify-center gap-8 mb-10">
+          <div className="text-center">
+            <div className="text-xs tracking-[0.2em] opacity-60 mb-1.5">DIFFICULTY</div>
+            <select
+              value={difficulty}
+              onChange={(e) => { setDifficulty(e.target.value as Difficulty); setTimeout(initGame, 30) }}
+              className="bg-zinc-900 border border-zinc-700 text-white px-6 py-3 rounded-2xl text-base font-bold focus:outline-none focus:border-white/50 w-52"
             >
-              {DIFFICULTIES[d].label}
-            </motion.button>
-          ))}
-          {(['solo', '2p', '3p', '4p'] as const).map(m => (
-            <motion.button
-              key={m}
-              onClick={() => { setMode(m); setTimeout(initGame, 50) }}
-              className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest flex items-center gap-2 transition-all ${mode === m ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+              {Object.entries(DIFFICULTIES).map(([key, d]) => (
+                <option key={key} value={key}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="text-center">
+            <div className="text-xs tracking-[0.2em] opacity-60 mb-1.5">PLAYERS</div>
+            <select
+              value={mode}
+              onChange={(e) => { setMode(e.target.value as Mode); setTimeout(initGame, 30) }}
+              className="bg-zinc-900 border border-zinc-700 text-white px-6 py-3 rounded-2xl text-base font-bold focus:outline-none focus:border-white/50 w-52"
             >
-              {m === 'solo' ? <User size={16} /> : <Users size={16} />}
-              {m === 'solo' ? 'VS AI' : m.toUpperCase()}
-            </motion.button>
-          ))}
+              <option value="solo">Solo vs AI</option>
+              <option value="2p">2 Players</option>
+              <option value="3p">3 Players</option>
+              <option value="4p">4 Players</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex flex-wrap justify-center gap-4 mb-10">
+        {/* Smaller scoreboard */}
+        <div className="flex flex-wrap justify-center gap-3 mb-8">
           {Array.from({ length: numPlayers }).map((_, i) => {
             const p = i + 1
             const isActive = p === currentPlayer && !gameOver
             return (
               <div
                 key={p}
-                className={`px-8 py-4 rounded-3xl text-center transition-all min-w-[130px] ${isActive ? 'ring-4 ring-offset-4 ring-offset-[#0d1117]' : ''}`}
+                className={`px-6 py-3 rounded-2xl text-center min-w-[108px] transition-all ${isActive ? 'ring-2 ring-offset-4 ring-offset-[#0d1117]' : ''}`}
                 style={{
-                  background: 'rgba(255,255,255,0.06)',
-                  border: `3px solid ${PLAYER_COLORS[p - 1]}`,
-                  boxShadow: isActive ? `0 0 30px ${PLAYER_COLORS[p - 1]}80` : 'none',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: `2px solid ${PLAYER_COLORS[p-1]}`,
+                  boxShadow: isActive ? `0 0 25px ${PLAYER_COLORS[p-1]}60` : 'none',
                 }}
               >
-                <div className="text-xs tracking-[0.2em] uppercase opacity-70 mb-1" style={{ color: PLAYER_COLORS[p - 1] }}>
+                <div className="text-[10px] tracking-widest opacity-70 mb-0.5" style={{ color: PLAYER_COLORS[p-1] }}>
                   {mode === 'solo' && p === 2 ? 'AI ' : ''}{PLAYER_NAMES[p]}
                 </div>
-                <div className="text-5xl font-black" style={{ color: PLAYER_COLORS[p - 1] }}>
-                  {scores[p - 1] || 0}
+                <div className="text-4xl font-black" style={{ color: PLAYER_COLORS[p-1] }}>
+                  {scores[p-1] || 0}
                 </div>
               </div>
             )
           })}
         </div>
 
+        {/* Bigger board - lines perfectly connect dots */}
         <div className="flex justify-center">
           <div
-            className="relative rounded-3xl shadow-2xl overflow-hidden"
+            className="relative rounded-3xl shadow-2xl overflow-hidden border-[14px] border-black"
             style={{
-              width: cols * cellSize + 28,
-              height: rows * cellSize + 28,
+              width: cols * cellSize,
+              height: rows * cellSize,
               background: '#ffffff',
-              border: '14px solid #111111',
             }}
           >
+            {/* Dots - smaller */}
             {Array.from({ length: rows + 1 }).map((_, r) =>
               Array.from({ length: cols + 1 }).map((_, c) => (
                 <div
                   key={`${r}-${c}`}
-                  className="absolute w-4 h-4 bg-black rounded-full shadow-md z-20"
+                  className="absolute w-3 h-3 bg-black rounded-full z-20 shadow"
                   style={{
-                    left: c * cellSize + cellSize / 2 - 8,
-                    top: r * cellSize + cellSize / 2 - 8,
+                    left: c * cellSize - 6,
+                    top: r * cellSize - 6,
                   }}
                 />
               ))
             )}
 
+            {/* Horizontal lines - connect dots exactly */}
             {linesH.map((row, r) =>
               row.map((owner, c) => (
                 <motion.div
                   key={`h-${r}-${c}`}
                   onClick={() => handleMove('h', r, c)}
-                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:scale-y-125' : ''}`}
+                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
                   style={{
-                    left: c * cellSize + 14,
-                    top: r * cellSize + cellSize / 2 - 3,
-                    width: cellSize - 28,
-                    height: 8,
-                    background: owner ? PLAYER_COLORS[owner - 1] : '#444444',
-                    borderRadius: 4,
+                    left: c * cellSize,
+                    top: r * cellSize - 2,
+                    width: cellSize,
+                    height: 5,
+                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                    borderRadius: 999,
                   }}
-                  whileHover={owner === 0 ? { scaleY: 1.6 } : {}}
+                  whileHover={owner === 0 ? { height: 9 } : {}}
                 />
               ))
             )}
 
+            {/* Vertical lines - connect dots exactly */}
             {linesV.map((row, r) =>
               row.map((owner, c) => (
                 <motion.div
                   key={`v-${r}-${c}`}
                   onClick={() => handleMove('v', r, c)}
-                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:scale-x-125' : ''}`}
+                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
                   style={{
-                    left: c * cellSize + cellSize / 2 - 3,
-                    top: r * cellSize + 14,
-                    width: 8,
-                    height: cellSize - 28,
-                    background: owner ? PLAYER_COLORS[owner - 1] : '#444444',
-                    borderRadius: 4,
+                    left: c * cellSize - 2,
+                    top: r * cellSize,
+                    width: 5,
+                    height: cellSize,
+                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                    borderRadius: 999,
                   }}
-                  whileHover={owner === 0 ? { scaleX: 1.6 } : {}}
+                  whileHover={owner === 0 ? { width: 9 } : {}}
                 />
               ))
             )}
 
+            {/* Boxes */}
             {boxes.map((row, r) =>
               row.map((owner, c) =>
                 owner ? (
                   <motion.div
                     key={`box-${r}-${c}`}
-                    initial={{ scale: 0.3, opacity: 0 }}
+                    initial={{ scale: 0.4, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="absolute flex items-center justify-center font-black text-6xl select-none"
+                    className="absolute flex items-center justify-center font-black text-5xl select-none"
                     style={{
-                      left: c * cellSize + cellSize * 0.12,
-                      top: r * cellSize + cellSize * 0.12,
-                      width: cellSize * 0.76,
-                      height: cellSize * 0.76,
-                      background: `${PLAYER_COLORS[owner - 1]}15`,
-                      border: `4px solid ${PLAYER_COLORS[owner - 1]}`,
-                      color: PLAYER_COLORS[owner - 1],
+                      left: c * cellSize + 8,
+                      top: r * cellSize + 8,
+                      width: cellSize - 16,
+                      height: cellSize - 16,
+                      background: `${PLAYER_COLORS[owner-1]}15`,
+                      border: `4px solid ${PLAYER_COLORS[owner-1]}`,
+                      color: PLAYER_COLORS[owner-1],
                     }}
                   >
                     {owner}
@@ -433,7 +403,7 @@ export default function DotsAndBoxesPage() {
         </div>
 
         <div className="text-center text-xs text-gray-500 mt-6 tracking-widest">
-          {mode === 'solo' ? 'You are RED • AI is BLUE' : 'Hot-seat multiplayer'}
+          {mode === 'solo' ? 'RED = You • BLUE = AI' : 'Hot-seat multiplayer • Tap lines to claim'}
         </div>
       </div>
 
