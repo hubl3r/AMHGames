@@ -39,22 +39,20 @@ export default function DotsAndBoxesPage() {
     const vw = window.innerWidth
     const vh = window.innerHeight
 
-    // Reserve some vertical space for title/controls/scoreboard (smaller on phones).
+    // Reserve headroom for title/controls/scoreboard; smaller on phones.
     const verticalReserve = vw < 640 ? 180 : 280
     const horizontalGutters = 32 // page side padding
 
     const availW = Math.max(240, vw - horizontalGutters * 2)
-
-    // Allow the board to be ~60% “longer” (taller) to favor bigger cells
+    // Allow the board to be ~60% taller to favor bigger cells when height allows
     const availHBase = Math.max(240, vh - verticalReserve)
-    const availH = Math.floor(availHBase * 1.6) // << 60% boost
+    const availH = Math.floor(availHBase * 1.6)
 
     const computed = Math.min(
       Math.floor(availW / cols),
       Math.floor(availH / rows)
     )
 
-    // Keep playable on tiny phones; don’t explode on large displays
     setCellSize(Math.max(26, Math.min(computed, 120)))
   }, [rows, cols])
 
@@ -69,10 +67,10 @@ export default function DotsAndBoxesPage() {
     const DOT_R   = Math.max(4, Math.round(cellSize * 0.10))        // dot radius
     const LINE_T  = Math.max(4, Math.round(cellSize * 0.10))        // line thickness
     const HOVER_G = Math.max(3, Math.round(LINE_T * 0.75))          // hover growth (desktop)
-    // Ensure padding >= max(DOT_R, LINE_T/2) so nothing clips at edges
+    // Ensure padding >= max(DOT_R, LINE_T/2) + small safety; prevents edge clipping
     const basePad = Math.max(DOT_R, Math.ceil(LINE_T / 2))
     const PADDING = Math.max(12, Math.min(36, Math.round(cellSize * 0.22), basePad + 6))
-    const BOX_IN  = Math.max(DOT_R + 2, Math.round(cellSize * 0.18)) // inset for claimed box
+    const BOX_IN  = Math.max(DOT_R + 2, Math.round(cellSize * 0.18)) // inset for claimed box fill
     return { DOT_R, LINE_T, HOVER_G, PADDING, BOX_IN }
   }, [cellSize])
 
@@ -93,7 +91,7 @@ export default function DotsAndBoxesPage() {
   const isBoxComplete = (r: number, c: number, h: number[][], v: number[][]) =>
     h[r][c] !== 0 && h[r + 1][c] !== 0 && v[r][c] !== 0 && v[r][c + 1] !== 0
 
-  const handleMove = (type: 'h' | 'v', row: number, col: number) => {
+  const handleMove = useCallback((type: 'h' | 'v', row: number, col: number) => {
     if (gameOver || (type === 'h' ? linesH[row][col] : linesV[row][col]) !== 0) return
 
     let newH = linesH.map(r => [...r])
@@ -156,7 +154,7 @@ export default function DotsAndBoxesPage() {
     if (completed === 0) {
       setCurrentPlayer(currentPlayer === numPlayers ? 1 : currentPlayer + 1)
     }
-  }
+  }, [gameOver, linesH, linesV, boxes, scores, currentPlayer, numPlayers, rows, cols, totalBoxes])
 
   /** =================== AI (solo) =================== */
   const aiPlay = useCallback(() => {
@@ -250,7 +248,7 @@ export default function DotsAndBoxesPage() {
       const m = all[Math.floor(Math.random()*all.length)]
       setTimeout(() => handleMove(m.type, m.row, m.col), 380)
     }
-  }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols]) // handleMove captured intentionally
+  }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols, handleMove])
 
   useEffect(() => {
     if (mode === 'solo' && currentPlayer === 2 && !gameOver) {
@@ -339,7 +337,7 @@ export default function DotsAndBoxesPage() {
         {/* Board */}
         <div className="flex justify-center">
           <div
-            key={`board-${rows}x${cols}-${numPlayers}`}
+            key={`board-${rows}x${cols}-${numPlayers}`} // force clean remount on shape change
             className="relative rounded-3xl shadow-2xl overflow-hidden border-[14px] border-black touch-manipulation select-none"
             style={{
               width: boardW,
@@ -354,53 +352,83 @@ export default function DotsAndBoxesPage() {
                   key={`${r}-${c}`}
                   className="absolute bg-black rounded-full z-20 shadow"
                   style={{
-                    width: METRICS.DOT_R * 2,
-                    height: METRICS.DOT_R * 2,
-                    left: METRICS.PADDING + c * cellSize - METRICS.DOT_R,
-                    top:  METRICS.PADDING + r * cellSize - METRICS.DOT_R,
+                    width: DOT_R * 2,
+                    height: DOT_R * 2,
+                    left: PADDING + c * cellSize - DOT_R,
+                    top:  PADDING + r * cellSize - DOT_R,
                   }}
                 />
               ))
             )}
 
-            {/* Horizontal lines */}
+            {/* Horizontal lines — edge safe (top/bottom stay fully inside) */}
             {linesH.map((row, r) =>
-              row.map((owner, c) => (
-                <motion.div
-                  key={`h-${r}-${c}`}
-                  onClick={() => handleMove('h', r, c)}
-                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
-                  style={{
-                    left: METRICS.PADDING + c * cellSize,
-                    top:  METRICS.PADDING + r * cellSize - Math.floor(METRICS.LINE_T / 2),
-                    width: cellSize,
-                    height: METRICS.LINE_T,
-                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
-                    borderRadius: 999,
-                  }}
-                  whileHover={owner === 0 ? { height: METRICS.LINE_T + METRICS.HOVER_G } : {}}
-                />
-              ))
+              row.map((owner, c) => {
+                const isTop    = r === 0
+                const isBottom = r === rows
+
+                const top = isTop
+                  ? PADDING // top edge: align inside
+                  : isBottom
+                    ? PADDING + r * cellSize - LINE_T // bottom edge: align inside
+                    : PADDING + r * cellSize - Math.floor(LINE_T / 2) // center
+
+                const hoverStyle = owner === 0
+                  ? (isTop || isBottom ? {} : { height: LINE_T + HOVER_G })
+                  : {}
+
+                return (
+                  <motion.div
+                    key={`h-${r}-${c}`}
+                    onClick={() => handleMove('h', r, c)}
+                    className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
+                    style={{
+                      left: PADDING + c * cellSize,
+                      top,
+                      width: cellSize,
+                      height: LINE_T,
+                      background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                      borderRadius: 999,
+                    }}
+                    whileHover={hoverStyle}
+                  />
+                )
+              })
             )}
 
-            {/* Vertical lines */}
+            {/* Vertical lines — edge safe (left/right stay fully inside) */}
             {linesV.map((row, r) =>
-              row.map((owner, c) => (
-                <motion.div
-                  key={`v-${r}-${c}`}
-                  onClick={() => handleMove('v', r, c)}
-                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
-                  style={{
-                    left: METRICS.PADDING + c * cellSize - Math.floor(METRICS.LINE_T / 2),
-                    top:  METRICS.PADDING + r * cellSize,
-                    width: METRICS.LINE_T,
-                    height: cellSize,
-                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
-                    borderRadius: 999,
-                  }}
-                  whileHover={owner === 0 ? { width: METRICS.LINE_T + METRICS.HOVER_G } : {}}
-                />
-              ))
+              row.map((owner, c) => {
+                const isLeft  = c === 0
+                const isRight = c === cols
+
+                const left = isLeft
+                  ? PADDING // left edge: align inside
+                  : isRight
+                    ? PADDING + c * cellSize - LINE_T // right edge: align inside
+                    : PADDING + c * cellSize - Math.floor(LINE_T / 2) // center
+
+                const hoverStyle = owner === 0
+                  ? (isLeft || isRight ? {} : { width: LINE_T + HOVER_G })
+                  : {}
+
+                return (
+                  <motion.div
+                    key={`v-${r}-${c}`}
+                    onClick={() => handleMove('v', r, c)}
+                    className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
+                    style={{
+                      left,
+                      top: PADDING + r * cellSize,
+                      width: LINE_T,
+                      height: cellSize,
+                      background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                      borderRadius: 999,
+                    }}
+                    whileHover={hoverStyle}
+                  />
+                )
+              })
             )}
 
             {/* Claimed boxes */}
@@ -413,12 +441,12 @@ export default function DotsAndBoxesPage() {
                     animate={{ scale: 1, opacity: 1 }}
                     className="absolute flex items-center justify-center font-black select-none"
                     style={{
-                      left:  METRICS.PADDING + c * cellSize + METRICS.BOX_IN,
-                      top:   METRICS.PADDING + r * cellSize + METRICS.BOX_IN,
-                      width: cellSize - METRICS.BOX_IN * 2,
-                      height: cellSize - METRICS.BOX_IN * 2,
+                      left:  PADDING + c * cellSize + BOX_IN,
+                      top:   PADDING + r * cellSize + BOX_IN,
+                      width: cellSize - BOX_IN * 2,
+                      height: cellSize - BOX_IN * 2,
                       background: `${PLAYER_COLORS[owner-1]}15`,
-                      border: `${Math.max(2, Math.round(METRICS.LINE_T * 0.8))}px solid ${PLAYER_COLORS[owner-1]}`,
+                      border: `${Math.max(2, Math.round(LINE_T * 0.8))}px solid ${PLAYER_COLORS[owner-1]}`,
                       color: PLAYER_COLORS[owner-1],
                       fontSize: Math.max(20, Math.round(cellSize * 0.55)),
                       borderRadius: 12,
