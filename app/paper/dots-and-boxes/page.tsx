@@ -234,3 +234,250 @@ export default function DotsAndBoxesPage() {
     }
 
     if (safe.length) {
+      const m = safe[Math.floor(Math.random() * safe.length)]
+      setTimeout(() => handleMove(m.type, m.row, m.col), 380)
+      return
+    }
+
+    const all: any[] = []
+    for (let r=0;r<=rows;r++) for (let c=0;c<cols;c++) if (linesH[r][c]===0) all.push({type:'h',row:r,col:c})
+    for (let r=0;r<rows;r++) for (let c=0;c<=cols;c++) if (linesV[r][c]===0) all.push({type:'v',row:r,col:c})
+    if (all.length) {
+      const m = all[Math.floor(Math.random()*all.length)]
+      setTimeout(() => handleMove(m.type, m.row, m.col), 380)
+    }
+  }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols, handleMove])
+
+  useEffect(() => {
+    if (mode === 'solo' && currentPlayer === 2 && !gameOver) {
+      const t = setTimeout(aiPlay, 360)
+      return () => clearTimeout(t)
+    }
+  }, [currentPlayer, mode, gameOver, aiPlay])
+
+  /** ---------- Render ---------- */
+  const { DOT_R, LINE_T, HOVER_G, PADDING, BOX_IN } = METRICS
+  const boardW = cols * cellSize + PADDING * 2
+  const boardH = rows * cellSize + PADDING * 2
+
+  return (
+    <div className="min-h-screen bg-[#0d1117] text-white pb-10">
+      <div className="mx-auto px-4 pt-6 max-w-[1200px]">
+        {/* Title */}
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center gap-3">
+            <span className="text-5xl sm:text-6xl">🔲</span>
+            <h1
+              className="text-5xl sm:text-6xl lg:text-7xl font-black tracking-[0.05em]"
+              style={{ fontFamily: 'Bebas Neue, sans-serif' }}
+            >
+              DOTS & BOXES
+            </h1>
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-col sm:flex-row justify-center gap-4 sm:gap-8 mb-6">
+          <div className="text-center">
+            <div className="text-xs tracking-[0.2em] opacity-60 mb-1.5">DIFFICULTY</div>
+            <select
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+              className="bg-zinc-900 border border-zinc-700 text-white px-5 py-3 rounded-2xl text-base font-bold focus:outline-none focus:border-white/50 w-52"
+            >
+              {Object.entries(DIFFICULTIES).map(([key, d]) => (
+                <option key={key} value={key}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="text-center">
+            <div className="text-xs tracking-[0.2em] opacity-60 mb-1.5">PLAYERS</div>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as Mode)}
+              className="bg-zinc-900 border border-zinc-700 text-white px-5 py-3 rounded-2xl text-base font-bold focus:outline-none focus:border-white/50 w-52"
+            >
+              <option value="solo">Solo vs AI</option>
+              <option value="2p">2 Players</option>
+              <option value="3p">3 Players</option>
+              <option value="4p">4 Players</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Scoreboard */}
+        <div className="flex flex-wrap justify-center gap-3 mb-6">
+          {Array.from({ length: numPlayers }).map((_, i) => {
+            const p = i + 1
+            const isActive = p === currentPlayer && !gameOver
+            return (
+              <div
+                key={p}
+                className={`px-5 py-3 rounded-2xl text-center min-w-[108px] transition-all ${isActive ? 'ring-2 ring-offset-4 ring-offset-[#0d1117]' : ''}`}
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: `2px solid ${PLAYER_COLORS[p-1]}`,
+                  boxShadow: isActive ? `0 0 25px ${PLAYER_COLORS[p-1]}60` : 'none',
+                }}
+              >
+                <div className="text-[10px] tracking-widest opacity-70 mb-0.5" style={{ color: PLAYER_COLORS[p-1] }}>
+                  {mode === 'solo' && p === 2 ? 'AI ' : ''}{PLAYER_NAMES[p]}
+                </div>
+                <div className="text-3xl sm:text-4xl font-black" style={{ color: PLAYER_COLORS[p-1] }}>
+                  {scores[p-1] ?? 0}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Board */}
+        <div className="flex justify-center">
+          <div
+            key={`board-${rows}x${cols}-${numPlayers}`}  // force clean remount on shape change
+            className="relative rounded-3xl shadow-2xl overflow-hidden border-[14px] border-black touch-manipulation"
+            style={{
+              width: boardW,
+              height: boardH,
+              background: '#ffffff',
+            }}
+          >
+            {/* Dots */}
+            {Array.from({ length: rows + 1 }).map((_, r) =>
+              Array.from({ length: cols + 1 }).map((_, c) => (
+                <div
+                  key={`${r}-${c}`}
+                  className="absolute bg-black rounded-full z-20 shadow"
+                  style={{
+                    width: DOT_R * 2,
+                    height: DOT_R * 2,
+                    left: PADDING + c * cellSize - DOT_R,
+                    top:  PADDING + r * cellSize - DOT_R,
+                  }}
+                />
+              ))
+            )}
+
+            {/* Horizontal lines */}
+            {linesH.map((row, r) =>
+              row.map((owner, c) => (
+                <motion.div
+                  key={`h-${r}-${c}`}
+                  onClick={() => handleMove('h', r, c)}
+                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
+                  style={{
+                    left: PADDING + c * cellSize,
+                    top:  PADDING + r * cellSize - Math.floor(LINE_T / 2),
+                    width: cellSize,
+                    height: LINE_T,
+                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                    borderRadius: 999,
+                  }}
+                  whileHover={owner === 0 ? { height: LINE_T + HOVER_G } : {}}
+                />
+              ))
+            )}
+
+            {/* Vertical lines */}
+            {linesV.map((row, r) =>
+              row.map((owner, c) => (
+                <motion.div
+                  key={`v-${r}-${c}`}
+                  onClick={() => handleMove('v', r, c)}
+                  className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
+                  style={{
+                    left: PADDING + c * cellSize - Math.floor(LINE_T / 2),
+                    top:  PADDING + r * cellSize,
+                    width: LINE_T,
+                    height: cellSize,
+                    background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
+                    borderRadius: 999,
+                  }}
+                  whileHover={owner === 0 ? { width: LINE_T + HOVER_G } : {}}
+                />
+              ))
+            )}
+
+            {/* Claimed boxes */}
+            {boxes.map((row, r) =>
+              row.map((owner, c) =>
+                owner ? (
+                  <motion.div
+                    key={`box-${r}-${c}`}
+                    initial={{ scale: 0.4, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="absolute flex items-center justify-center font-black select-none"
+                    style={{
+                      left:  PADDING + c * cellSize + BOX_IN,
+                      top:   PADDING + r * cellSize + BOX_IN,
+                      width: cellSize - BOX_IN * 2,
+                      height: cellSize - BOX_IN * 2,
+                      background: `${PLAYER_COLORS[owner-1]}15`,
+                      border: `${Math.max(2, Math.round(LINE_T * 0.8))}px solid ${PLAYER_COLORS[owner-1]}`,
+                      color: PLAYER_COLORS[owner-1],
+                      fontSize: Math.max(20, Math.round(cellSize * 0.55)),
+                      borderRadius: 12,
+                    }}
+                  >
+                    {owner}
+                  </motion.div>
+                ) : null
+              )
+            )}
+          </div>
+        </div>
+
+        {/* New game */}
+        <div className="flex justify-center mt-8">
+          <motion.button
+            onClick={initGame}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.96 }}
+            className="flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 px-8 py-4 rounded-3xl text-lg sm:text-xl font-bold tracking-widest border border-zinc-700"
+          >
+            <RotateCcw size={22} /> NEW GAME
+          </motion.button>
+        </div>
+
+        <div className="text-center text-xs text-gray-500 mt-5 tracking-widest">
+          {mode === 'solo' ? 'RED = You • BLUE = AI' : 'Hot-seat multiplayer • Tap lines to claim'}
+        </div>
+      </div>
+
+      {/* Winner overlay */}
+      <AnimatePresence>
+        {gameOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.82, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#1c2128] border-4 border-white/80 rounded-3xl p-10 text-center max-w-xs w-full"
+            >
+              <Trophy size={72} className="mx-auto mb-5 text-white" />
+              <h2
+                className="text-4xl sm:text-5xl font-black tracking-widest mb-3"
+                style={{ fontFamily: 'Bebas Neue, sans-serif' }}
+              >
+                {winnerText.includes('TIE') ? 'TIE GAME' : winnerText.split(' ')[0] + ' WINS'}
+              </h2>
+              <p className="text-xl sm:text-2xl text-gray-300 mb-8">{winnerText}</p>
+              <motion.button
+                onClick={initGame}
+                whileHover={{ scale: 1.05 }}
+                className="w-full py-5 bg-white text-black rounded-2xl text-xl sm:text-2xl font-bold tracking-widest"
+              >
+                PLAY AGAIN
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
