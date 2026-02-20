@@ -35,13 +35,10 @@ export default function DotsAndBoxesPage() {
 
   const totalBoxes = rows * cols
 
-  // Resize board to fit screen
   const updateCellSize = useCallback(() => {
-    const maxWidth = Math.min(window.innerWidth - 60, 820)
-    const maxHeight = window.innerHeight - 460
-    const wSize = Math.floor(maxWidth / cols)
-    const hSize = Math.floor(maxHeight / rows)
-    setCellSize(Math.min(wSize, hSize, 72))
+    const maxW = Math.min(window.innerWidth - 60, 820)
+    const maxH = window.innerHeight - 460
+    setCellSize(Math.min(Math.floor(maxW / cols), Math.floor(maxH / rows), 72))
   }, [rows, cols])
 
   useEffect(() => {
@@ -51,15 +48,10 @@ export default function DotsAndBoxesPage() {
   }, [updateCellSize])
 
   const initGame = useCallback(() => {
-    const newH = Array(rows + 1).fill(0).map(() => Array(cols).fill(0))
-    const newV = Array(rows).fill(0).map(() => Array(cols + 1).fill(0))
-    const newBoxes = Array(rows).fill(0).map(() => Array(cols).fill(0))
-    const newScores = Array(numPlayers).fill(0)
-
-    setLinesH(newH)
-    setLinesV(newV)
-    setBoxes(newBoxes)
-    setScores(newScores)
+    setLinesH(Array(rows + 1).fill(0).map(() => Array(cols).fill(0)))
+    setLinesV(Array(rows).fill(0).map(() => Array(cols + 1).fill(0)))
+    setBoxes(Array(rows).fill(0).map(() => Array(cols).fill(0)))
+    setScores(Array(numPlayers).fill(0))
     setCurrentPlayer(1)
     setGameOver(false)
     setWinnerText('')
@@ -69,9 +61,8 @@ export default function DotsAndBoxesPage() {
     initGame()
   }, [initGame])
 
-  const isBoxComplete = (r: number, c: number, h: number[][], v: number[][]): boolean => {
-    return h[r][c] !== 0 && h[r + 1][c] !== 0 && v[r][c] !== 0 && v[r][c + 1] !== 0
-  }
+  const isBoxComplete = (r: number, c: number, h: number[][], v: number[][]) =>
+    h[r][c] !== 0 && h[r + 1][c] !== 0 && v[r][c] !== 0 && v[r][c + 1] !== 0
 
   const handleMove = (type: 'h' | 'v', row: number, col: number) => {
     if (gameOver || (type === 'h' ? linesH[row][col] : linesV[row][col]) !== 0) return
@@ -81,7 +72,6 @@ export default function DotsAndBoxesPage() {
     let newBoxesArr = boxes.map(r => [...r])
     let newScoresArr = [...scores]
     let completed = 0
-
     const player = currentPlayer
 
     if (type === 'h') {
@@ -122,10 +112,17 @@ export default function DotsAndBoxesPage() {
       const winners = newScoresArr
         .map((s, i) => (s === maxScore ? PLAYER_NAMES[i + 1] : ''))
         .filter(Boolean)
+
+      let scoreStr = `${maxScore}`
+      if (winners.length === 1) {
+        const winnerIdx = PLAYER_NAMES.indexOf(winners[0])
+        const otherTotal = newScoresArr.reduce((sum, s, i) => (i + 1 !== winnerIdx ? sum + s : sum), 0)
+        scoreStr = `${maxScore}–${otherTotal}`
+      }
       setWinnerText(
         winners.length > 1
           ? `TIE ${maxScore}–${maxScore}`
-          : `${winners[0]} WINS ${maxScore}–${newScoresArr.reduce((a, b, i) => (i + 1 !== winners[0].index ? a + b : a), 0)}`
+          : `${winners[0]} WINS ${scoreStr}`
       )
       return
     }
@@ -136,94 +133,86 @@ export default function DotsAndBoxesPage() {
     }
   }
 
-  // AI Logic (only for solo, player 2)
+  // AI (solo only – player 2)
   const aiPlay = useCallback(() => {
     if (mode !== 'solo' || currentPlayer !== 2 || gameOver) return
 
-    // 1. Find any move that completes box(es) for AI
-    let bestMoves: { type: 'h' | 'v'; row: number; col: number; completed: number }[] = []
-
-    // Horizontal
-    for (let r = 0; r <= rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (linesH[r][c] !== 0) continue
-        let tempH = linesH.map(rr => [...rr])
-        let tempV = linesV.map(rr => [...rr])
-        let comp = 0
-        tempH[r][c] = 2
-        if (r > 0 && isBoxComplete(r - 1, c, tempH, tempV)) comp++
-        if (r < rows && isBoxComplete(r, c, tempH, tempV)) comp++
-        if (comp > 0) bestMoves.push({ type: 'h', row: r, col: c, completed: comp })
+    const getCompletingMoves = () => {
+      const moves: { type: 'h' | 'v'; row: number; col: number; completed: number }[] = []
+      // Horizontal
+      for (let r = 0; r <= rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (linesH[r][c] !== 0) continue
+          let tempH = linesH.map(x => [...x])
+          let tempV = linesV.map(x => [...x])
+          tempH[r][c] = 2
+          let comp = 0
+          if (r > 0 && isBoxComplete(r - 1, c, tempH, tempV)) comp++
+          if (r < rows && isBoxComplete(r, c, tempH, tempV)) comp++
+          if (comp > 0) moves.push({ type: 'h', row: r, col: c, completed: comp })
+        }
       }
-    }
-    // Vertical
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c <= cols; c++) {
-        if (linesV[r][c] !== 0) continue
-        let tempH = linesH.map(rr => [...rr])
-        let tempV = linesV.map(rr => [...rr])
-        let comp = 0
-        tempV[r][c] = 2
-        if (c > 0 && isBoxComplete(r, c - 1, tempH, tempV)) comp++
-        if (c < cols && isBoxComplete(r, c, tempH, tempV)) comp++
-        if (comp > 0) bestMoves.push({ type: 'v', row: r, col: c, completed: comp })
+      // Vertical
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c <= cols; c++) {
+          if (linesV[r][c] !== 0) continue
+          let tempH = linesH.map(x => [...x])
+          let tempV = linesV.map(x => [...x])
+          tempV[r][c] = 2
+          let comp = 0
+          if (c > 0 && isBoxComplete(r, c - 1, tempH, tempV)) comp++
+          if (c < cols && isBoxComplete(r, c, tempH, tempV)) comp++
+          if (comp > 0) moves.push({ type: 'v', row: r, col: c, completed: comp })
+        }
       }
+      return moves
     }
 
-    if (bestMoves.length > 0) {
-      // Pick random best
-      const move = bestMoves[Math.floor(Math.random() * bestMoves.length)]
+    let moves = getCompletingMoves()
+    if (moves.length > 0) {
+      const move = moves[Math.floor(Math.random() * moves.length)]
       setTimeout(() => handleMove(move.type, move.row, move.col), 420)
       return
     }
 
-    // 2. Safe moves (opponent gets no immediate box)
-    bestMoves = []
+    // Safe moves (no immediate box for opponent)
+    const safeMoves: { type: 'h' | 'v'; row: number; col: number }[] = []
     const opponent = 1
 
-    // Horizontal safe check
+    // Horizontal safe
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (linesH[r][c] !== 0) continue
-        let tempH = linesH.map(rr => [...rr])
-        let tempV = linesV.map(rr => [...rr])
+        let tempH = linesH.map(x => [...x])
+        let tempV = linesV.map(x => [...x])
         tempH[r][c] = 2
         let givesAway = false
 
-        // Check if opponent can complete any box now
-        for (let or = 0; or <= rows; or++) {
-          for (let oc = 0; oc < cols; oc++) {
+        // check opponent horizontal
+        for (let or = 0; or <= rows && !givesAway; or++) {
+          for (let oc = 0; oc < cols && !givesAway; oc++) {
             if (tempH[or][oc] === 0) {
-              let checkH = tempH.map(x => [...x])
-              let checkV = tempV.map(x => [...x])
-              checkH[or][oc] = opponent
-              if ((or > 0 && isBoxComplete(or - 1, oc, checkH, checkV)) ||
-                  (or < rows && isBoxComplete(or, oc, checkH, checkV))) {
-                givesAway = true
-                break
-              }
+              let ch = tempH.map(x => [...x])
+              let cv = tempV.map(x => [...x])
+              ch[or][oc] = opponent
+              if ((or > 0 && isBoxComplete(or - 1, oc, ch, cv)) ||
+                  (or < rows && isBoxComplete(or, oc, ch, cv))) givesAway = true
             }
           }
-          if (givesAway) break
         }
-        if (!givesAway) {
-          for (let or = 0; or < rows; or++) {
-            for (let oc = 0; oc <= cols; oc++) {
-              if (tempV[or][oc] === 0) {
-                let checkH = tempH.map(x => [...x])
-                let checkV = tempV.map(x => [...x])
-                checkV[or][oc] = opponent
-                if ((oc > 0 && isBoxComplete(or, oc - 1, checkH, checkV)) ||
-                    (oc < cols && isBoxComplete(or, oc, checkH, checkV))) {
-                  givesAway = true
-                  break
-                }
-              }
+        // check opponent vertical
+        for (let or = 0; or < rows && !givesAway; or++) {
+          for (let oc = 0; oc <= cols && !givesAway; oc++) {
+            if (tempV[or][oc] === 0) {
+              let ch = tempH.map(x => [...x])
+              let cv = tempV.map(x => [...x])
+              cv[or][oc] = opponent
+              if ((oc > 0 && isBoxComplete(or, oc - 1, ch, cv)) ||
+                  (oc < cols && isBoxComplete(or, oc, ch, cv))) givesAway = true
             }
-            if (givesAway) break
           }
         }
-        if (!givesAway) bestMoves.push({ type: 'h' as const, row: r, col: c, completed: 0 })
+        if (!givesAway) safeMoves.push({ type: 'h', row: r, col: c })
       }
     }
 
@@ -231,48 +220,64 @@ export default function DotsAndBoxesPage() {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c <= cols; c++) {
         if (linesV[r][c] !== 0) continue
-        let tempH = linesH.map(rr => [...rr])
-        let tempV = linesV.map(rr => [...rr])
+        let tempH = linesH.map(x => [...x])
+        let tempV = linesV.map(x => [...x])
         tempV[r][c] = 2
         let givesAway = false
-        // same check as above...
-        // (to save space I omitted duplicate loop - in real code it's identical)
-        // For brevity here: if (!givesAway) bestMoves.push(...)
-        // Note: full code has symmetric check for vertical
+
+        for (let or = 0; or <= rows && !givesAway; or++) {
+          for (let oc = 0; oc < cols && !givesAway; oc++) {
+            if (tempH[or][oc] === 0) {
+              let ch = tempH.map(x => [...x])
+              let cv = tempV.map(x => [...x])
+              ch[or][oc] = opponent
+              if ((or > 0 && isBoxComplete(or - 1, oc, ch, cv)) ||
+                  (or < rows && isBoxComplete(or, oc, ch, cv))) givesAway = true
+            }
+          }
+        }
+        for (let or = 0; or < rows && !givesAway; or++) {
+          for (let oc = 0; oc <= cols && !givesAway; oc++) {
+            if (tempV[or][oc] === 0) {
+              let ch = tempH.map(x => [...x])
+              let cv = tempV.map(x => [...x])
+              cv[or][oc] = opponent
+              if ((oc > 0 && isBoxComplete(or, oc - 1, ch, cv)) ||
+                  (oc < cols && isBoxComplete(or, oc, ch, cv))) givesAway = true
+            }
+          }
+        }
+        if (!givesAway) safeMoves.push({ type: 'v', row: r, col: c })
       }
     }
 
-    if (bestMoves.length > 0) {
-      const move = bestMoves[Math.floor(Math.random() * bestMoves.length)]
+    if (safeMoves.length > 0) {
+      const move = safeMoves[Math.floor(Math.random() * safeMoves.length)]
       setTimeout(() => handleMove(move.type, move.row, move.col), 420)
       return
     }
 
-    // 3. Random safe-ish move (any remaining)
-    const allMoves: { type: 'h' | 'v'; row: number; col: number }[] = []
-    for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) if (linesH[r][c] === 0) allMoves.push({ type: 'h', row: r, col: c })
-    for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) if (linesV[r][c] === 0) allMoves.push({ type: 'v', row: r, col: c })
+    // Random any remaining
+    const all: { type: 'h' | 'v'; row: number; col: number }[] = []
+    for (let r = 0; r <= rows; r++) for (let c = 0; c < cols; c++) if (linesH[r][c] === 0) all.push({ type: 'h', row: r, col: c })
+    for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) if (linesV[r][c] === 0) all.push({ type: 'v', row: r, col: c })
 
-    if (allMoves.length > 0) {
-      const move = allMoves[Math.floor(Math.random() * allMoves.length)]
+    if (all.length > 0) {
+      const move = all[Math.floor(Math.random() * all.length)]
       setTimeout(() => handleMove(move.type, move.row, move.col), 420)
     }
   }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols, handleMove])
 
-  // Trigger AI after human turn
   useEffect(() => {
     if (mode === 'solo' && currentPlayer === 2 && !gameOver) {
-      const timer = setTimeout(aiPlay, 380)
-      return () => clearTimeout(timer)
+      const t = setTimeout(aiPlay, 380)
+      return () => clearTimeout(t)
     }
   }, [currentPlayer, mode, gameOver, aiPlay])
-
-  const filledCount = scores.reduce((a, b) => a + b, 0)
 
   return (
     <div className="min-h-screen bg-[#0d1117] text-white pb-12">
       <div className="max-w-4xl mx-auto px-4 pt-8">
-        {/* Title */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-4">
             <span className="text-6xl">🔲</span>
@@ -282,37 +287,28 @@ export default function DotsAndBoxesPage() {
           </div>
         </div>
 
-        {/* Selectors */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
-          {/* Difficulty */}
-          <div className="flex gap-2 flex-wrap justify-center">
-            {(['easy', 'medium', 'hard'] as const).map(d => (
-              <motion.button
-                key={d}
-                onClick={() => { setDifficulty(d); setTimeout(initGame, 50) }}
-                className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest transition-all ${difficulty === d ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
-              >
-                {DIFFICULTIES[d].label}
-              </motion.button>
-            ))}
-          </div>
-
-          {/* Mode */}
-          <div className="flex gap-2 flex-wrap justify-center">
-            {(['solo', '2p', '3p', '4p'] as const).map(m => (
-              <motion.button
-                key={m}
-                onClick={() => { setMode(m); setTimeout(initGame, 50) }}
-                className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest flex items-center gap-2 transition-all ${mode === m ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
-              >
-                {m === 'solo' ? <User size={16} /> : <Users size={16} />}
-                {m === 'solo' ? 'VS AI' : m.toUpperCase()}
-              </motion.button>
-            ))}
-          </div>
+          {(['easy', 'medium', 'hard'] as const).map(d => (
+            <motion.button
+              key={d}
+              onClick={() => { setDifficulty(d); setTimeout(initGame, 50) }}
+              className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest transition-all ${difficulty === d ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+            >
+              {DIFFICULTIES[d].label}
+            </motion.button>
+          ))}
+          {(['solo', '2p', '3p', '4p'] as const).map(m => (
+            <motion.button
+              key={m}
+              onClick={() => { setMode(m); setTimeout(initGame, 50) }}
+              className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-widest flex items-center gap-2 transition-all ${mode === m ? 'bg-white text-black scale-105' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+            >
+              {m === 'solo' ? <User size={16} /> : <Users size={16} />}
+              {m === 'solo' ? 'VS AI' : m.toUpperCase()}
+            </motion.button>
+          ))}
         </div>
 
-        {/* Scoreboard */}
         <div className="flex flex-wrap justify-center gap-4 mb-10">
           {Array.from({ length: numPlayers }).map((_, i) => {
             const p = i + 1
@@ -325,7 +321,6 @@ export default function DotsAndBoxesPage() {
                   background: 'rgba(255,255,255,0.06)',
                   border: `3px solid ${PLAYER_COLORS[p - 1]}`,
                   boxShadow: isActive ? `0 0 30px ${PLAYER_COLORS[p - 1]}80` : 'none',
-                  ringColor: PLAYER_COLORS[p - 1],
                 }}
               >
                 <div className="text-xs tracking-[0.2em] uppercase opacity-70 mb-1" style={{ color: PLAYER_COLORS[p - 1] }}>
@@ -339,7 +334,6 @@ export default function DotsAndBoxesPage() {
           })}
         </div>
 
-        {/* Board */}
         <div className="flex justify-center">
           <div
             className="relative rounded-3xl shadow-2xl overflow-hidden"
@@ -350,7 +344,6 @@ export default function DotsAndBoxesPage() {
               border: '14px solid #111111',
             }}
           >
-            {/* Dots */}
             {Array.from({ length: rows + 1 }).map((_, r) =>
               Array.from({ length: cols + 1 }).map((_, c) => (
                 <div
@@ -364,7 +357,6 @@ export default function DotsAndBoxesPage() {
               ))
             )}
 
-            {/* Horizontal lines */}
             {linesH.map((row, r) =>
               row.map((owner, c) => (
                 <motion.div
@@ -384,7 +376,6 @@ export default function DotsAndBoxesPage() {
               ))
             )}
 
-            {/* Vertical lines */}
             {linesV.map((row, r) =>
               row.map((owner, c) => (
                 <motion.div
@@ -404,7 +395,6 @@ export default function DotsAndBoxesPage() {
               ))
             )}
 
-            {/* Filled boxes */}
             {boxes.map((row, r) =>
               row.map((owner, c) =>
                 owner ? (
@@ -431,7 +421,6 @@ export default function DotsAndBoxesPage() {
           </div>
         </div>
 
-        {/* Controls */}
         <div className="flex justify-center mt-10">
           <motion.button
             onClick={initGame}
@@ -448,7 +437,6 @@ export default function DotsAndBoxesPage() {
         </div>
       </div>
 
-      {/* Winner Modal */}
       <AnimatePresence>
         {gameOver && (
           <motion.div
