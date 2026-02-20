@@ -2,122 +2,106 @@
 
 'use client'
 
-import { useReducer, useEffect, useState } from 'react'
+import { useReducer, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trophy, RotateCcw, Sparkles, Settings } from 'lucide-react'
+import { Trophy, RotateCcw, Sparkles } from 'lucide-react'
 
 const COLORS = [
-  { id: 'red', hex: '#c1121f', name: 'Ruby' },
-  { id: 'blue', hex: '#0466c8', name: 'Sapphire' },
-  { id: 'green', hex: '#2d6a4f', name: 'Emerald' },
-  { id: 'yellow', hex: '#ffd60a', name: 'Topaz' },
-  { id: 'purple', hex: '#7209b7', name: 'Amethyst' },
-  { id: 'orange', hex: '#f77f00', name: 'Amber' },
+  { id: 'red', hex: '#c1121f', glow: 'rgba(193,18,31,0.6)' },
+  { id: 'blue', hex: '#0466c8', glow: 'rgba(4,102,200,0.6)' },
+  { id: 'green', hex: '#2d6a4f', glow: 'rgba(45,106,79,0.6)' },
+  { id: 'yellow', hex: '#ffd60a', glow: 'rgba(255,214,10,0.6)' },
+  { id: 'purple', hex: '#7209b7', glow: 'rgba(114,9,183,0.6)' },
+  { id: 'orange', hex: '#f77f00', glow: 'rgba(247,127,0,0.6)' },
 ]
 
+const CODE_LENGTHS = { easy: 4, medium: 5, hard: 6 }
+const MAX_ATTEMPTS = 10
+
 type Difficulty = 'easy' | 'medium' | 'hard'
-
-const DIFFICULTY_CONFIG = {
-  easy: { colors: 4, codeLength: 4, maxGuesses: 12 },
-  medium: { colors: 6, codeLength: 4, maxGuesses: 10 },
-  hard: { colors: 6, codeLength: 5, maxGuesses: 10 },
-}
-
 type GameState = {
   difficulty: Difficulty
   secret: string[]
-  guesses: string[][]
-  feedback: { exact: number; partial: number }[]
-  currentGuess: string[]
+  guesses: { guess: string[]; feedback: { exact: number; partial: number } }[]
+  currentGuess: (string | null)[]
+  selectedColor: string | null
   gameOver: boolean
   won: boolean
-  attempts: number
-  showSettings: boolean
+  wins: number
 }
 
 type Action =
   | { type: 'SELECT_COLOR'; color: string }
-  | { type: 'REMOVE_LAST' }
+  | { type: 'PLACE_PEG'; index: number }
   | { type: 'SUBMIT_GUESS' }
-  | { type: 'NEW_GAME'; difficulty?: Difficulty }
-  | { type: 'TOGGLE_SETTINGS' }
+  | { type: 'NEW_GAME' }
   | { type: 'SET_DIFFICULTY'; difficulty: Difficulty }
 
-function generateSecret(numColors: number, codeLength: number): string[] {
-  const availableColors = COLORS.slice(0, numColors)
-  const secret: string[] = []
-  for (let i = 0; i < codeLength; i++) {
-    secret.push(availableColors[Math.floor(Math.random() * availableColors.length)].id)
-  }
-  return secret
+function generateSecret(codeLength: number): string[] {
+  return Array(codeLength).fill(0).map(() => COLORS[Math.floor(Math.random() * COLORS.length)].id)
 }
 
-function calculateFeedback(guess: string[], secret: string[]): { exact: number; partial: number } {
-  const exact = guess.filter((c, i) => c === secret[i]).length
-  const guessCounts = guess.reduce((acc, c) => ({ ...acc, [c]: (acc[c] || 0) + 1 }), {} as Record<string, number>)
+function calculateFeedback(guess: (string | null)[], secret: string[]): { exact: number; partial: number } {
+  const guessClean = guess.filter(Boolean) as string[]
+  const exact = guessClean.filter((c, i) => c === secret[i]).length
+  const guessCounts = guessClean.reduce((acc, c) => ({ ...acc, [c]: (acc[c] || 0) + 1 }), {} as Record<string, number>)
   const secretCounts = secret.reduce((acc, c) => ({ ...acc, [c]: (acc[c] || 0) + 1 }), {} as Record<string, number>)
   const total = Object.keys(guessCounts).reduce((sum, c) => sum + Math.min(guessCounts[c] || 0, secretCounts[c] || 0), 0)
   return { exact, partial: total - exact }
 }
 
 function reducer(state: GameState, action: Action): GameState {
-  const config = DIFFICULTY_CONFIG[state.difficulty]
+  const codeLength = CODE_LENGTHS[state.difficulty]
 
   switch (action.type) {
     case 'SELECT_COLOR':
-      if (state.gameOver || state.currentGuess.length >= config.codeLength) return state
-      return { ...state, currentGuess: [...state.currentGuess, action.color] }
+      return { ...state, selectedColor: action.color }
 
-    case 'REMOVE_LAST':
-      if (state.gameOver || state.currentGuess.length === 0) return state
-      return { ...state, currentGuess: state.currentGuess.slice(0, -1) }
+    case 'PLACE_PEG':
+      if (state.gameOver || !state.selectedColor) return state
+      const newGuess = [...state.currentGuess]
+      newGuess[action.index] = state.selectedColor
+      return { ...state, currentGuess: newGuess }
 
     case 'SUBMIT_GUESS':
-      if (state.gameOver || state.currentGuess.length !== config.codeLength) return state
+      if (state.gameOver || state.currentGuess.some(p => !p)) return state
       const feedback = calculateFeedback(state.currentGuess, state.secret)
-      const won = feedback.exact === config.codeLength
-      const attempts = state.attempts + 1
-      const gameOver = won || attempts >= config.maxGuesses
+      const won = feedback.exact === codeLength
+      const newGuesses = [...state.guesses, { guess: state.currentGuess as string[], feedback }]
+      const gameOver = won || newGuesses.length >= MAX_ATTEMPTS
       return {
         ...state,
-        guesses: [...state.guesses, state.currentGuess],
-        feedback: [...state.feedback, feedback],
-        currentGuess: [],
+        guesses: newGuesses,
+        currentGuess: Array(codeLength).fill(null),
         won,
         gameOver,
-        attempts,
+        wins: won ? state.wins + 1 : state.wins,
+        selectedColor: null,
       }
 
     case 'NEW_GAME':
-      const newDiff = action.difficulty || state.difficulty
-      const newConfig = DIFFICULTY_CONFIG[newDiff]
+      const newCodeLength = CODE_LENGTHS[state.difficulty]
       return {
-        difficulty: newDiff,
-        secret: generateSecret(newConfig.colors, newConfig.codeLength),
+        ...state,
+        secret: generateSecret(newCodeLength),
         guesses: [],
-        feedback: [],
-        currentGuess: [],
+        currentGuess: Array(newCodeLength).fill(null),
+        selectedColor: null,
         gameOver: false,
         won: false,
-        attempts: 0,
-        showSettings: false,
       }
 
-    case 'TOGGLE_SETTINGS':
-      return { ...state, showSettings: !state.showSettings }
-
     case 'SET_DIFFICULTY':
-      const newCfg = DIFFICULTY_CONFIG[action.difficulty]
+      const newLen = CODE_LENGTHS[action.difficulty]
       return {
+        ...state,
         difficulty: action.difficulty,
-        secret: generateSecret(newCfg.colors, newCfg.codeLength),
+        secret: generateSecret(newLen),
         guesses: [],
-        feedback: [],
-        currentGuess: [],
+        currentGuess: Array(newLen).fill(null),
+        selectedColor: null,
         gameOver: false,
         won: false,
-        attempts: 0,
-        showSettings: false,
       }
 
     default:
@@ -127,234 +111,238 @@ function reducer(state: GameState, action: Action): GameState {
 
 export default function MastermindPage() {
   const [state, dispatch] = useReducer(reducer, null, () => {
-    const config = DIFFICULTY_CONFIG.medium
+    const savedWins = typeof window !== 'undefined' ? parseInt(localStorage.getItem('mastermindWins') || '0') : 0
     return {
-      difficulty: 'medium' as Difficulty,
-      secret: generateSecret(config.colors, config.codeLength),
+      difficulty: 'easy' as Difficulty,
+      secret: generateSecret(CODE_LENGTHS.easy),
       guesses: [],
-      feedback: [],
-      currentGuess: [],
+      currentGuess: Array(CODE_LENGTHS.easy).fill(null),
+      selectedColor: null,
       gameOver: false,
       won: false,
-      attempts: 0,
-      showSettings: false,
+      wins: savedWins,
     }
   })
 
-  const config = DIFFICULTY_CONFIG[state.difficulty]
-  const availableColors = COLORS.slice(0, config.colors)
-
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (state.showSettings) return
-      if (e.key === 'Backspace') dispatch({ type: 'REMOVE_LAST' })
-      if (e.key === 'Enter') dispatch({ type: 'SUBMIT_GUESS' })
-      const colorKey = ['1', '2', '3', '4', '5', '6'].indexOf(e.key)
-      if (colorKey >= 0 && colorKey < config.colors) {
-        dispatch({ type: 'SELECT_COLOR', color: availableColors[colorKey].id })
-      }
-    }
-    window.addEventListener('keydown', handleKeyPress)
-    return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [state.showSettings, config.colors, availableColors])
+    localStorage.setItem('mastermindWins', state.wins.toString())
+  }, [state.wins])
 
-  // Empty rows to show future guess slots
-  const emptyRows = Math.max(0, config.maxGuesses - state.guesses.length - 1)
+  const codeLength = CODE_LENGTHS[state.difficulty]
+  const currentAttempt = state.guesses.length
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
       
-      {/* Ambient orbs */}
+      {/* Ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl opacity-10" style={{ background: 'radial-gradient(circle, #d4af37, transparent)' }} />
         <div className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full blur-3xl opacity-10" style={{ background: 'radial-gradient(circle, #7209b7, transparent)' }} />
       </div>
 
-      <div className="relative z-10 max-w-3xl mx-auto px-4 py-8">
+      <div className="relative z-10 max-w-7xl w-full grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
         
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-6">
-          <div className="flex items-center justify-center gap-4 mb-2">
-            <h1 className="text-5xl md:text-6xl font-bold" style={{ fontFamily: 'Cinzel, serif', background: 'linear-gradient(135deg, #d4af37, #c0c0c0, #d4af37)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.2em' }}>
-              MASTERMIND
-            </h1>
-            <motion.button onClick={() => dispatch({ type: 'TOGGLE_SETTINGS' })} whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} className="p-2 rounded-lg" style={{ background: 'rgba(212,175,55,0.2)' }}>
-              <Settings size={24} style={{ color: '#d4af37' }} />
-            </motion.button>
-          </div>
-          <p className="text-sm tracking-widest uppercase opacity-70" style={{ color: '#d4af37' }}>
-            {state.difficulty.charAt(0).toUpperCase() + state.difficulty.slice(1)} Mode
-          </p>
-        </motion.div>
+        {/* LEFT: Game Board */}
+        <div className="w-full lg:w-auto">
+          <div className="rounded-2xl p-6" style={{ 
+            background: 'linear-gradient(135deg, rgba(139,90,43,0.3), rgba(101,67,33,0.3))',
+            border: '3px solid #d4af37',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.5), inset 0 0 30px rgba(212,175,55,0.1)',
+            backgroundImage: 'repeating-linear-gradient(90deg, rgba(101,67,33,0.1) 0px, transparent 1px, transparent 40px, rgba(101,67,33,0.1) 41px), repeating-linear-gradient(0deg, rgba(101,67,33,0.1) 0px, transparent 1px, transparent 40px, rgba(101,67,33,0.1) 41px)',
+          }}>
+            
+            {/* Secret row */}
+            <div className="flex justify-center gap-3 mb-6 p-4 rounded-xl" style={{ background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(212,175,55,0.2)' }}>
+              {Array(codeLength).fill(0).map((_, i) => (
+                <div key={i} className="w-12 h-12 rounded-full flex items-center justify-center text-2xl font-bold" style={{ 
+                  background: state.gameOver ? COLORS.find(c => c.id === state.secret[i])?.hex : 'linear-gradient(135deg, #333, #1a1a1a)', 
+                  border: '3px solid #d4af37',
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.5), inset 0 2px 5px rgba(255,255,255,0.2)',
+                  color: '#d4af37'
+                }}>
+                  {!state.gameOver && '?'}
+                </div>
+              ))}
+            </div>
 
-        {/* Stats */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }} className="flex justify-around mb-6 p-4 rounded-xl" style={{ background: 'rgba(26,20,35,0.6)', border: '2px solid rgba(212,175,55,0.3)', backdropFilter: 'blur(10px)' }}>
-          <div className="text-center">
-            <div className="text-2xl font-bold" style={{ color: '#d4af37' }}>{state.attempts}</div>
-            <div className="text-xs opacity-70">Attempts</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold" style={{ color: '#d4af37' }}>{config.maxGuesses - state.attempts}</div>
-            <div className="text-xs opacity-70">Remaining</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold" style={{ color: '#d4af37' }}>{config.codeLength}</div>
-            <div className="text-xs opacity-70">Code Length</div>
-          </div>
-        </motion.div>
+            {/* Guess rows */}
+            <div className="space-y-3">
+              {Array(MAX_ATTEMPTS).fill(0).map((_, rowIndex) => {
+                const isActive = rowIndex === currentAttempt && !state.gameOver
+                const pastGuess = state.guesses[rowIndex]
 
-        {/* Game board */}
-        <div className="space-y-2 mb-6 p-6 rounded-2xl" style={{ background: 'rgba(26,20,35,0.8)', border: '2px solid rgba(212,175,55,0.3)' }}>
-          
-          {/* Empty future rows */}
-          {[...Array(emptyRows)].map((_, i) => (
-            <motion.div key={`empty-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 0.2 }} className="flex items-center gap-3 p-3">
-              <div className="flex gap-2 flex-1">
-                {[...Array(config.codeLength)].map((_, j) => (
-                  <div key={j} className="w-10 h-10 md:w-12 md:h-12 rounded-full border border-dashed" style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-                ))}
-              </div>
-              <div className="w-16 h-10 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)' }} />
-            </motion.div>
-          ))}
+                return (
+                  <motion.div key={rowIndex} initial={{ opacity: 0.3 }} animate={{ opacity: isActive ? 1 : pastGuess ? 0.7 : 0.3 }} className="flex items-center gap-3 p-3 rounded-xl" style={{
+                    background: isActive ? 'rgba(212,175,55,0.15)' : 'rgba(0,0,0,0.3)',
+                    border: isActive ? '2px solid #d4af37' : '2px solid transparent',
+                    boxShadow: isActive ? '0 0 20px rgba(212,175,55,0.3)' : 'none',
+                  }}>
+                    
+                    {/* Pegs */}
+                    <div className="flex gap-2 flex-1">
+                      {Array(codeLength).fill(0).map((_, pegIndex) => {
+                        const color = isActive ? state.currentGuess[pegIndex] : pastGuess?.guess[pegIndex]
+                        const colorData = color ? COLORS.find(c => c.id === color) : null
 
-          {/* Current guess row */}
-          {!state.gameOver && (
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(212,175,55,0.15)', border: '2px solid rgba(212,175,55,0.5)', boxShadow: '0 0 20px rgba(212,175,55,0.2)' }}>
-              <div className="flex gap-2 flex-1">
-                {[...Array(config.codeLength)].map((_, i) => (
-                  <motion.div key={i} initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ delay: i * 0.05 }} className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 flex items-center justify-center relative overflow-hidden" style={{ background: state.currentGuess[i] ? COLORS.find(c => c.id === state.currentGuess[i])?.hex : 'rgba(255,255,255,0.05)', borderColor: state.currentGuess[i] ? 'rgba(212,175,55,0.8)' : 'rgba(255,255,255,0.3)' }}>
-                    {!state.currentGuess[i] && (
-                      <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2, delay: i * 0.2 }} className="w-2 h-2 rounded-full bg-white opacity-30" />
-                    )}
-                    {state.currentGuess[i] && (
-                      <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} className="absolute inset-0 rounded-full" style={{ background: COLORS.find(c => c.id === state.currentGuess[i])?.hex }} />
+                        return (
+                          <motion.button key={pegIndex} onClick={() => isActive && dispatch({ type: 'PLACE_PEG', index: pegIndex })} disabled={!isActive} whileHover={isActive ? { scale: 1.1 } : {}} whileTap={isActive ? { scale: 0.95 } : {}} className="w-10 h-10 rounded-full border-2 transition-all disabled:cursor-default" style={{
+                            background: colorData?.hex || 'linear-gradient(135deg, #444, #222)',
+                            borderColor: colorData ? 'rgba(255,255,255,0.5)' : '#666',
+                            boxShadow: colorData ? `0 0 15px ${colorData.glow}, inset 0 2px 4px rgba(255,255,255,0.3)` : '0 3px 10px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.1)',
+                            cursor: isActive ? 'pointer' : 'default',
+                          }} />
+                        )
+                      })}
+                    </div>
+
+                    {/* Feedback */}
+                    <div className="grid gap-1 p-2 rounded-lg" style={{ 
+                      gridTemplateColumns: codeLength === 4 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                      background: 'rgba(0,0,0,0.4)',
+                      width: '60px',
+                    }}>
+                      {Array(codeLength).fill(0).map((_, i) => {
+                        const isExact = pastGuess && i < pastGuess.feedback.exact
+                        const isPartial = pastGuess && i >= pastGuess.feedback.exact && i < (pastGuess.feedback.exact + pastGuess.feedback.partial)
+                        
+                        return (
+                          <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: isExact || isPartial ? 1 : 1 }} transition={{ delay: i * 0.05 }} className="w-3 h-3 rounded-full border" style={{
+                            background: isExact ? 'radial-gradient(circle, #1a1a1a, #000)' : isPartial ? 'radial-gradient(circle, #fff, #ddd)' : '#333',
+                            borderColor: isExact || isPartial ? '#fff' : '#555',
+                            boxShadow: isExact ? '0 0 5px rgba(255,255,255,0.8)' : isPartial ? '0 0 5px rgba(255,255,255,0.5)' : 'none',
+                          }} />
+                        )
+                      })}
+                    </div>
+
+                    {/* Inline Submit */}
+                    {isActive && (
+                      <motion.button initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} onClick={() => dispatch({ type: 'SUBMIT_GUESS' })} disabled={state.currentGuess.some(p => !p)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="px-4 py-2 rounded-lg font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed" style={{
+                        background: state.currentGuess.every(p => p) ? 'linear-gradient(135deg, #d4af37, #a68a2e)' : 'rgba(100,100,100,0.3)',
+                        color: state.currentGuess.every(p => p) ? '#0d0911' : '#666',
+                        border: '2px solid',
+                        borderColor: state.currentGuess.every(p => p) ? '#d4af37' : '#444',
+                        fontFamily: 'Cinzel, serif',
+                        letterSpacing: '0.1em',
+                      }}>
+                        SUBMIT
+                      </motion.button>
                     )}
                   </motion.div>
-                ))}
-              </div>
-              <motion.button onClick={() => dispatch({ type: 'SUBMIT_GUESS' })} disabled={state.currentGuess.length !== config.codeLength} whileHover={state.currentGuess.length === config.codeLength ? { scale: 1.05 } : {}} whileTap={state.currentGuess.length === config.codeLength ? { scale: 0.95 } : {}} className="px-4 py-2 rounded-lg font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed" style={{ background: state.currentGuess.length === config.codeLength ? 'linear-gradient(135deg, #d4af37, #a08428)' : 'rgba(255,255,255,0.1)', color: 'white' }}>
-                Submit
-              </motion.button>
-            </motion.div>
-          )}
-
-          {/* Previous guesses (reverse order - most recent at top) */}
-          <AnimatePresence>
-            {[...state.guesses].reverse().map((guess, reverseIndex) => {
-              const i = state.guesses.length - 1 - reverseIndex
-              return (
-                <motion.div key={i} initial={{ opacity: 0, x: -50, height: 0 }} animate={{ opacity: 1, x: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ delay: reverseIndex * 0.05 }} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(26,20,35,0.4)', border: '1px solid rgba(212,175,55,0.2)' }}>
-                  <div className="flex gap-2 flex-1">
-                    {guess.map((color, j) => (
-                      <motion.div key={j} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: j * 0.05, type: 'spring', stiffness: 200 }} className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 shadow-lg" style={{ background: COLORS.find(c => c.id === color)?.hex, borderColor: 'rgba(212,175,55,0.5)' }} />
-                    ))}
-                  </div>
-                  <div className="flex gap-1 w-16 flex-wrap justify-center p-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                    {[...Array(state.feedback[i].exact)].map((_, k) => (
-                      <motion.div key={`e${k}`} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.3 + k * 0.05, type: 'spring' }} className="w-2.5 h-2.5 rounded-full" style={{ background: '#d4af37', boxShadow: '0 0 8px rgba(212,175,55,0.8)' }} />
-                    ))}
-                    {[...Array(state.feedback[i].partial)].map((_, k) => (
-                      <motion.div key={`p${k}`} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.3 + state.feedback[i].exact * 0.05 + k * 0.05, type: 'spring' }} className="w-2.5 h-2.5 rounded-full" style={{ background: '#c0c0c0', boxShadow: '0 0 8px rgba(192,192,192,0.6)' }} />
-                    ))}
-                  </div>
-                </motion.div>
-              )
-            })}
-          </AnimatePresence>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
-        {/* Color palette */}
-        {!state.gameOver && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex justify-center gap-2 md:gap-3 mb-6 p-4 rounded-xl" style={{ background: 'rgba(26,20,35,0.6)', border: '1px solid rgba(212,175,55,0.2)' }}>
-            {availableColors.map((color, i) => (
-              <motion.button key={color.id} onClick={() => dispatch({ type: 'SELECT_COLOR', color: color.id })} whileHover={{ scale: 1.15, y: -8 }} whileTap={{ scale: 0.9 }} className="w-12 h-12 md:w-14 md:h-14 rounded-full border-2 shadow-xl transition-all relative group" style={{ background: color.hex, borderColor: 'rgba(212,175,55,0.5)' }} title={`${i + 1}. ${color.name}`}>
-                <motion.div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{ background: 'rgba(0,0,0,0.9)', color: '#d4af37', border: '1px solid rgba(212,175,55,0.3)' }}>
-                  {i + 1}. {color.name}
-                </motion.div>
-              </motion.button>
-            ))}
+        {/* RIGHT: Info & Controls */}
+        <div className="space-y-6">
+          
+          {/* Header */}
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="text-6xl font-bold mb-2" style={{ 
+              fontFamily: 'Cinzel, serif', 
+              background: 'linear-gradient(135deg, #d4af37, #c0c0c0, #d4af37)', 
+              WebkitBackgroundClip: 'text', 
+              WebkitTextFillColor: 'transparent', 
+              letterSpacing: '0.2em',
+            }}>
+              MASTERMIND
+            </h1>
+            <p className="text-sm tracking-widest uppercase opacity-70" style={{ color: '#d4af37' }}>Break the Code</p>
           </motion.div>
-        )}
 
-        {/* Controls */}
-        <div className="flex justify-center gap-4 flex-wrap">
-          {!state.gameOver && (
-            <motion.button onClick={() => dispatch({ type: 'REMOVE_LAST' })} disabled={state.currentGuess.length === 0} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-30" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white' }}>
-              ← Remove
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 p-4 rounded-xl" style={{ background: 'rgba(26,20,35,0.6)', border: '2px solid rgba(212,175,55,0.3)', backdropFilter: 'blur(10px)' }}>
+            <div className="text-center">
+              <div className="text-xs opacity-70 mb-1 tracking-wider">DIFFICULTY</div>
+              <select value={state.difficulty} onChange={e => dispatch({ type: 'SET_DIFFICULTY', difficulty: e.target.value as Difficulty })} className="text-xl font-bold px-2 py-1 rounded cursor-pointer" style={{ 
+                fontFamily: 'Cinzel, serif', 
+                background: 'rgba(212,175,55,0.2)', 
+                border: '2px solid #d4af37', 
+                color: '#d4af37' 
+              }}>
+                <option value="easy">Easy</option>
+                <option value="medium">Med</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div className="text-center">
+              <div className="text-xs opacity-70 mb-1 tracking-wider">ATTEMPTS</div>
+              <div className="text-2xl font-bold" style={{ color: '#d4af37' }}>{currentAttempt}/{MAX_ATTEMPTS}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs opacity-70 mb-1 tracking-wider">GAMES WON</div>
+              <div className="text-2xl font-bold" style={{ color: '#d4af37' }}>{state.wins}</div>
+            </div>
+          </div>
+
+          {/* Color Palette */}
+          <div className="p-6 rounded-xl" style={{ background: 'rgba(26,20,35,0.6)', border: '2px solid rgba(212,175,55,0.3)' }}>
+            <h3 className="text-center mb-4 tracking-widest text-sm opacity-70">COLOR PALETTE</h3>
+            <div className="flex justify-center gap-3 flex-wrap">
+              {COLORS.map(color => (
+                <motion.button key={color.id} onClick={() => dispatch({ type: 'SELECT_COLOR', color: color.id })} whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} className="w-14 h-14 rounded-full border-3 transition-all" style={{
+                  background: color.hex,
+                  border: state.selectedColor === color.id ? '4px solid rgba(255,255,255,0.8)' : '3px solid rgba(255,255,255,0.3)',
+                  boxShadow: state.selectedColor === color.id ? `0 0 20px ${color.glow}` : `0 4px 15px rgba(0,0,0,0.5), inset 0 2px 5px rgba(255,255,255,0.2)`,
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="flex gap-4">
+            <motion.button onClick={() => dispatch({ type: 'NEW_GAME' })} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-bold transition-all" style={{
+              background: 'linear-gradient(135deg, #d4af37, #a68a2e)',
+              color: '#0d0911',
+              border: '2px solid #d4af37',
+              fontFamily: 'Cinzel, serif',
+              letterSpacing: '0.15em',
+              boxShadow: '0 4px 15px rgba(212,175,55,0.3)',
+            }}>
+              <RotateCcw size={20} /> NEW GAME
             </motion.button>
-          )}
-          <motion.button onClick={() => dispatch({ type: 'NEW_GAME' })} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white' }}>
-            <RotateCcw size={18} /> New Game
-          </motion.button>
+          </div>
+
+          {/* Instructions */}
+          <div className="p-4 rounded-xl text-sm space-y-2" style={{ background: 'rgba(26,20,35,0.4)', border: '1px solid rgba(212,175,55,0.2)' }}>
+            <h3 className="font-bold mb-2 tracking-wider" style={{ color: '#d4af37' }}>HOW TO PLAY</h3>
+            <p>• Select a color, then click pegs to place</p>
+            <p>• <span className="inline-block w-3 h-3 rounded-full mr-1" style={{ background: '#000', border: '1px solid #fff' }} /> = correct color & position</p>
+            <p>• <span className="inline-block w-3 h-3 rounded-full mr-1" style={{ background: '#fff', border: '1px solid #fff' }} /> = correct color, wrong position</p>
+          </div>
         </div>
-
-        {/* Instructions */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-6 p-4 rounded-xl text-sm" style={{ background: 'rgba(26,20,35,0.4)', border: '1px solid rgba(212,175,55,0.2)' }}>
-          <p className="mb-2"><span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: '#d4af37', boxShadow: '0 0 8px rgba(212,175,55,0.8)' }} /> Gold = correct color & position</p>
-          <p className="mb-2"><span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: '#c0c0c0', boxShadow: '0 0 8px rgba(192,192,192,0.6)' }} /> Silver = correct color, wrong position</p>
-          <p className="opacity-60 text-xs">Keyboard: 1-{config.colors} to select • Enter to submit • Backspace to remove</p>
-        </motion.div>
       </div>
-
-      {/* Settings Modal */}
-      <AnimatePresence>
-        {state.showSettings && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => dispatch({ type: 'TOGGLE_SETTINGS' })} className="fixed inset-0 flex items-center justify-center z-50 px-4" style={{ background: 'rgba(0,0,0,0.8)' }}>
-            <motion.div initial={{ scale: 0.8, y: 50 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.8, y: 50 }} onClick={e => e.stopPropagation()} className="max-w-md w-full p-8 rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(26,20,35,0.95), rgba(45,27,61,0.95))', border: '2px solid rgba(212,175,55,0.5)' }}>
-              <h2 className="text-3xl font-bold mb-6 text-center" style={{ color: '#d4af37', fontFamily: 'Cinzel, serif' }}>Difficulty</h2>
-              <div className="space-y-3">
-                {(['easy', 'medium', 'hard'] as Difficulty[]).map(diff => {
-                  const cfg = DIFFICULTY_CONFIG[diff]
-                  return (
-                    <motion.button key={diff} onClick={() => dispatch({ type: 'SET_DIFFICULTY', difficulty: diff })} whileHover={{ scale: 1.02, x: 5 }} whileTap={{ scale: 0.98 }} className="w-full p-4 rounded-xl text-left transition-all" style={{ background: state.difficulty === diff ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.05)', border: state.difficulty === diff ? '2px solid rgba(212,175,55,0.6)' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <div className="font-bold text-lg mb-1" style={{ color: state.difficulty === diff ? '#d4af37' : 'white' }}>
-                        {diff.charAt(0).toUpperCase() + diff.slice(1)}
-                      </div>
-                      <div className="text-sm opacity-70">
-                        {cfg.colors} colors • {cfg.codeLength} pegs • {cfg.maxGuesses} guesses
-                      </div>
-                    </motion.button>
-                  )
-                })}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Win/Loss Modal */}
       <AnimatePresence>
         {state.gameOver && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 flex items-center justify-center z-50 px-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-            <motion.div initial={{ scale: 0.8, y: 50, rotate: -5 }} animate={{ scale: 1, y: 0, rotate: 0 }} exit={{ scale: 0.8, y: 50 }} className="max-w-md w-full p-8 rounded-2xl text-center" style={{ background: 'linear-gradient(135deg, rgba(26,20,35,0.98), rgba(45,27,61,0.98))', border: '2px solid rgba(212,175,55,0.6)', boxShadow: '0 0 60px rgba(212,175,55,0.3)' }}>
+            <motion.div initial={{ scale: 0.8, y: 50 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.8, y: 50 }} className="max-w-md w-full p-8 rounded-2xl text-center" style={{ background: 'linear-gradient(135deg, rgba(26,20,35,0.98), rgba(45,27,61,0.98))', border: '3px solid #d4af37', boxShadow: '0 0 60px rgba(212,175,55,0.4)' }}>
               {state.won ? (
                 <>
-                  <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}>
+                  <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring' }}>
                     <Trophy size={80} className="mx-auto mb-4" style={{ color: '#d4af37', filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.8))' }} />
                   </motion.div>
-                  <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-5xl font-bold mb-3" style={{ color: '#d4af37', fontFamily: 'Cinzel, serif', textShadow: '0 0 30px rgba(212,175,55,0.5)' }}>
-                    Victory!
-                  </motion.h2>
-                  <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-xl mb-6 opacity-90">
-                    Code cracked in <span className="font-bold" style={{ color: '#d4af37' }}>{state.attempts}</span> attempts
-                  </motion.p>
+                  <h2 className="text-5xl font-bold mb-3" style={{ fontFamily: 'Cinzel, serif', color: '#d4af37' }}>YOU WIN!</h2>
+                  <p className="text-xl mb-6">Code cracked in {currentAttempt} attempts!</p>
                 </>
               ) : (
                 <>
                   <Sparkles size={80} className="mx-auto mb-4 opacity-60" style={{ color: '#c0c0c0' }} />
-                  <h2 className="text-4xl font-bold mb-3 text-white" style={{ fontFamily: 'Cinzel, serif' }}>Code Remains Hidden</h2>
-                  <p className="text-lg mb-4 opacity-80">The secret was:</p>
+                  <h2 className="text-4xl font-bold mb-3" style={{ fontFamily: 'Cinzel, serif' }}>Code Remains Hidden</h2>
+                  <p className="mb-4">The secret was:</p>
                   <div className="flex justify-center gap-2 mb-6">
                     {state.secret.map((color, i) => (
-                      <motion.div key={i} initial={{ scale: 0, rotate: 180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: 0.1 + i * 0.1, type: 'spring' }} className="w-12 h-12 md:w-14 md:h-14 rounded-full border-2 shadow-lg" style={{ background: COLORS.find(c => c.id === color)?.hex, borderColor: 'rgba(212,175,55,0.5)' }} />
+                      <div key={i} className="w-12 h-12 rounded-full border-2" style={{ background: COLORS.find(c => c.id === color)?.hex, borderColor: '#d4af37' }} />
                     ))}
                   </div>
                 </>
               )}
-              <motion.button onClick={() => dispatch({ type: 'NEW_GAME' })} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="px-10 py-4 rounded-xl font-bold text-lg transition-all" style={{ background: 'linear-gradient(135deg, #d4af37, #a08428)', color: 'white', boxShadow: '0 4px 20px rgba(212,175,55,0.4)' }}>
-                Play Again
-              </motion.button>
+              <button onClick={() => dispatch({ type: 'NEW_GAME' })} className="px-10 py-4 rounded-xl font-bold text-lg" style={{ background: 'linear-gradient(135deg, #d4af37, #a68a2e)', color: '#0d0911', fontFamily: 'Cinzel, serif' }}>
+                PLAY AGAIN
+              </button>
             </motion.div>
           </motion.div>
         )}
