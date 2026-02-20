@@ -1,5 +1,5 @@
-// app/paper/dots-and-boxes/page.tsx
 'use client'
+
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { RotateCcw, Trophy } from 'lucide-react'
@@ -34,25 +34,28 @@ export default function DotsAndBoxesPage() {
 
   const totalBoxes = rows * cols
 
-  /** ---------- Responsive sizing & spacing ---------- */
+  /** =================== Responsive sizing =================== */
   const updateCellSize = useCallback(() => {
     const vw = window.innerWidth
     const vh = window.innerHeight
 
-    // Space around the board for page chrome (header, selects, scoreboard).
-    const verticalReserve = vw < 640 ? 200 : 300   // smaller reserve on phones
-    const horizontalGutters = 32                   // side padding
+    // Reserve some vertical space for title/controls/scoreboard (smaller on phones).
+    const verticalReserve = vw < 640 ? 180 : 280
+    const horizontalGutters = 32 // page side padding
 
     const availW = Math.max(240, vw - horizontalGutters * 2)
-    const availH = Math.max(240, vh - verticalReserve)
 
-    const size = Math.min(
+    // Allow the board to be ~60% “longer” (taller) to favor bigger cells
+    const availHBase = Math.max(240, vh - verticalReserve)
+    const availH = Math.floor(availHBase * 1.6) // << 60% boost
+
+    const computed = Math.min(
       Math.floor(availW / cols),
       Math.floor(availH / rows)
     )
 
-    // Bound the size so it fills most screens but stays usable on tiny viewports
-    setCellSize(Math.max(26, Math.min(size, 120)))
+    // Keep playable on tiny phones; don’t explode on large displays
+    setCellSize(Math.max(26, Math.min(computed, 120)))
   }, [rows, cols])
 
   useEffect(() => {
@@ -61,18 +64,19 @@ export default function DotsAndBoxesPage() {
     return () => window.removeEventListener('resize', updateCellSize)
   }, [updateCellSize])
 
-  // Derived metrics scale with cell size (good for touch targets)
+  // Metrics derived from cellSize so touch targets scale on mobile
   const METRICS = useMemo(() => {
-    const DOT_R   = Math.max(4, Math.round(cellSize * 0.10))     // dot radius
-    const LINE_T  = Math.max(4, Math.round(cellSize * 0.10))     // line thickness
-    const HOVER_G = Math.max(3, Math.round(LINE_T * 0.75))       // hover growth
-    const PADDING = Math.max(12, Math.min(32, Math.round(cellSize * 0.20))) // inner padding
-    const BOX_IN  = Math.max(DOT_R + 2, Math.round(cellSize * 0.18)) // box inset from dot centers
-
+    const DOT_R   = Math.max(4, Math.round(cellSize * 0.10))        // dot radius
+    const LINE_T  = Math.max(4, Math.round(cellSize * 0.10))        // line thickness
+    const HOVER_G = Math.max(3, Math.round(LINE_T * 0.75))          // hover growth (desktop)
+    // Ensure padding >= max(DOT_R, LINE_T/2) so nothing clips at edges
+    const basePad = Math.max(DOT_R, Math.ceil(LINE_T / 2))
+    const PADDING = Math.max(12, Math.min(36, Math.round(cellSize * 0.22), basePad + 6))
+    const BOX_IN  = Math.max(DOT_R + 2, Math.round(cellSize * 0.18)) // inset for claimed box
     return { DOT_R, LINE_T, HOVER_G, PADDING, BOX_IN }
   }, [cellSize])
 
-  /** ---------- Game init & state ---------- */
+  /** =================== Init & game state =================== */
   const initGame = useCallback(() => {
     setLinesH(Array(rows + 1).fill(0).map(() => Array(cols).fill(0)))
     setLinesV(Array(rows).fill(0).map(() => Array(cols + 1).fill(0)))
@@ -83,7 +87,7 @@ export default function DotsAndBoxesPage() {
     setWinnerText('')
   }, [rows, cols, numPlayers])
 
-  // Initialize whenever grid shape or player count changes.
+  // Re-init when grid shape or players change
   useEffect(() => { initGame() }, [initGame])
 
   const isBoxComplete = (r: number, c: number, h: number[][], v: number[][]) =>
@@ -154,7 +158,7 @@ export default function DotsAndBoxesPage() {
     }
   }
 
-  /** ---------- Simple AI for solo mode ---------- */
+  /** =================== AI (solo) =================== */
   const aiPlay = useCallback(() => {
     if (mode !== 'solo' || currentPlayer !== 2 || gameOver) return
 
@@ -246,7 +250,7 @@ export default function DotsAndBoxesPage() {
       const m = all[Math.floor(Math.random()*all.length)]
       setTimeout(() => handleMove(m.type, m.row, m.col), 380)
     }
-  }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols, handleMove])
+  }, [mode, currentPlayer, gameOver, linesH, linesV, rows, cols]) // handleMove captured intentionally
 
   useEffect(() => {
     if (mode === 'solo' && currentPlayer === 2 && !gameOver) {
@@ -255,7 +259,7 @@ export default function DotsAndBoxesPage() {
     }
   }, [currentPlayer, mode, gameOver, aiPlay])
 
-  /** ---------- Render ---------- */
+  /** =================== Render =================== */
   const { DOT_R, LINE_T, HOVER_G, PADDING, BOX_IN } = METRICS
   const boardW = cols * cellSize + PADDING * 2
   const boardH = rows * cellSize + PADDING * 2
@@ -335,8 +339,8 @@ export default function DotsAndBoxesPage() {
         {/* Board */}
         <div className="flex justify-center">
           <div
-            key={`board-${rows}x${cols}-${numPlayers}`}  // force clean remount on shape change
-            className="relative rounded-3xl shadow-2xl overflow-hidden border-[14px] border-black touch-manipulation"
+            key={`board-${rows}x${cols}-${numPlayers}`}
+            className="relative rounded-3xl shadow-2xl overflow-hidden border-[14px] border-black touch-manipulation select-none"
             style={{
               width: boardW,
               height: boardH,
@@ -350,10 +354,10 @@ export default function DotsAndBoxesPage() {
                   key={`${r}-${c}`}
                   className="absolute bg-black rounded-full z-20 shadow"
                   style={{
-                    width: DOT_R * 2,
-                    height: DOT_R * 2,
-                    left: PADDING + c * cellSize - DOT_R,
-                    top:  PADDING + r * cellSize - DOT_R,
+                    width: METRICS.DOT_R * 2,
+                    height: METRICS.DOT_R * 2,
+                    left: METRICS.PADDING + c * cellSize - METRICS.DOT_R,
+                    top:  METRICS.PADDING + r * cellSize - METRICS.DOT_R,
                   }}
                 />
               ))
@@ -367,14 +371,14 @@ export default function DotsAndBoxesPage() {
                   onClick={() => handleMove('h', r, c)}
                   className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
                   style={{
-                    left: PADDING + c * cellSize,
-                    top:  PADDING + r * cellSize - Math.floor(LINE_T / 2),
+                    left: METRICS.PADDING + c * cellSize,
+                    top:  METRICS.PADDING + r * cellSize - Math.floor(METRICS.LINE_T / 2),
                     width: cellSize,
-                    height: LINE_T,
+                    height: METRICS.LINE_T,
                     background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
                     borderRadius: 999,
                   }}
-                  whileHover={owner === 0 ? { height: LINE_T + HOVER_G } : {}}
+                  whileHover={owner === 0 ? { height: METRICS.LINE_T + METRICS.HOVER_G } : {}}
                 />
               ))
             )}
@@ -387,14 +391,14 @@ export default function DotsAndBoxesPage() {
                   onClick={() => handleMove('v', r, c)}
                   className={`absolute transition-all ${owner === 0 ? 'cursor-pointer hover:bg-zinc-300' : ''}`}
                   style={{
-                    left: PADDING + c * cellSize - Math.floor(LINE_T / 2),
-                    top:  PADDING + r * cellSize,
-                    width: LINE_T,
+                    left: METRICS.PADDING + c * cellSize - Math.floor(METRICS.LINE_T / 2),
+                    top:  METRICS.PADDING + r * cellSize,
+                    width: METRICS.LINE_T,
                     height: cellSize,
                     background: owner ? PLAYER_COLORS[owner - 1] : '#555555',
                     borderRadius: 999,
                   }}
-                  whileHover={owner === 0 ? { width: LINE_T + HOVER_G } : {}}
+                  whileHover={owner === 0 ? { width: METRICS.LINE_T + METRICS.HOVER_G } : {}}
                 />
               ))
             )}
@@ -409,12 +413,12 @@ export default function DotsAndBoxesPage() {
                     animate={{ scale: 1, opacity: 1 }}
                     className="absolute flex items-center justify-center font-black select-none"
                     style={{
-                      left:  PADDING + c * cellSize + BOX_IN,
-                      top:   PADDING + r * cellSize + BOX_IN,
-                      width: cellSize - BOX_IN * 2,
-                      height: cellSize - BOX_IN * 2,
+                      left:  METRICS.PADDING + c * cellSize + METRICS.BOX_IN,
+                      top:   METRICS.PADDING + r * cellSize + METRICS.BOX_IN,
+                      width: cellSize - METRICS.BOX_IN * 2,
+                      height: cellSize - METRICS.BOX_IN * 2,
                       background: `${PLAYER_COLORS[owner-1]}15`,
-                      border: `${Math.max(2, Math.round(LINE_T * 0.8))}px solid ${PLAYER_COLORS[owner-1]}`,
+                      border: `${Math.max(2, Math.round(METRICS.LINE_T * 0.8))}px solid ${PLAYER_COLORS[owner-1]}`,
                       color: PLAYER_COLORS[owner-1],
                       fontSize: Math.max(20, Math.round(cellSize * 0.55)),
                       borderRadius: 12,
