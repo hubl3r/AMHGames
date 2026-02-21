@@ -110,8 +110,9 @@ export default function JigsawPage() {
     if (!canvasRef.current) return
 
     const canvas = canvasRef.current
-    canvas.width = 1200
-    canvas.height = 800
+    // Bigger canvas for better mobile navigation
+    canvas.width = 1600
+    canvas.height = 1000
 
     // Generate tab pattern
     const tabPattern: number[][] = []
@@ -148,6 +149,7 @@ export default function JigsawPage() {
         )
         tileCtx.restore()
 
+        // Don't draw outline initially - will be hidden when pieces connect
         tileCtx.save()
         tileCtx.translate(MARGIN, MARGIN)
         tileCtx.strokeStyle = 'rgba(255,255,255,0.3)'
@@ -155,12 +157,13 @@ export default function JigsawPage() {
         tileCtx.stroke(path)
         tileCtx.restore()
 
+        // Spread pieces more - keep in safe zone away from edges
         const tile: Tile = {
           id: y * numCols + x,
           gridX: x,
           gridY: y,
-          x: 400 + Math.random() * 700,
-          y: 50 + Math.random() * 700,
+          x: 600 + Math.random() * 850,  // More spread, avoid left edge
+          y: 100 + Math.random() * 750,   // More vertical spread
           groupId: y * numCols + x,
           canvas: tileCanvas,
           ctx: tileCtx,
@@ -192,12 +195,31 @@ export default function JigsawPage() {
       return 0
     })
 
+    // Group pieces by groupId to determine which have outlines
+    const groupSizes = new Map<number, number>()
+    for (const tile of tiles) {
+      groupSizes.set(tile.groupId, (groupSizes.get(tile.groupId) || 0) + 1)
+    }
+
     for (const tile of sorted) {
+      const isInGroup = (groupSizes.get(tile.groupId) || 1) > 1
+      
       ctx.save()
       ctx.shadowColor = tile.groupId === dragState.selectedGroupId ? 'rgba(168,85,247,0.6)' : 'rgba(0,0,0,0.3)'
       ctx.shadowBlur = tile.groupId === dragState.selectedGroupId ? 20 : 10
       ctx.shadowOffsetY = 5
+      
+      // Draw tile image
       ctx.drawImage(tile.canvas, tile.x - MARGIN, tile.y - MARGIN)
+      
+      // Only draw outline if piece is alone (not connected)
+      if (!isInGroup) {
+        ctx.translate(tile.x, tile.y)
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+        ctx.lineWidth = 1
+        ctx.stroke(tile.path)
+      }
+      
       ctx.restore()
     }
   }
@@ -349,10 +371,37 @@ export default function JigsawPage() {
   }
 
   const scatterPieces = () => {
-    for (const tile of tilesRef.current) {
-      tile.x = 400 + Math.random() * 700
-      tile.y = 50 + Math.random() * 700
+    const tiles = tilesRef.current
+    const groups = new Map<number, Tile[]>()
+    
+    // Group tiles by groupId
+    for (const tile of tiles) {
+      if (!groups.has(tile.groupId)) {
+        groups.set(tile.groupId, [])
+      }
+      groups.get(tile.groupId)!.push(tile)
     }
+
+    // Scatter each group as a unit
+    for (const [groupId, groupTiles] of groups) {
+      // Find top-left tile in group (anchor)
+      const minX = Math.min(...groupTiles.map(t => t.gridX))
+      const minY = Math.min(...groupTiles.map(t => t.gridY))
+      const anchor = groupTiles.find(t => t.gridX === minX && t.gridY === minY)!
+      
+      // New random position for anchor
+      const newX = 600 + Math.random() * 850
+      const newY = 100 + Math.random() * 750
+      const deltaX = newX - anchor.x
+      const deltaY = newY - anchor.y
+      
+      // Move entire group together
+      for (const tile of groupTiles) {
+        tile.x += deltaX
+        tile.y += deltaY
+      }
+    }
+    
     render()
   }
 
@@ -448,7 +497,7 @@ export default function JigsawPage() {
                 <Sparkles size={16} /> Scatter
               </button>
               <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <Upload size={16} /> New Image
+                <Upload size={16} /> New Game
               </button>
             </div>
 
