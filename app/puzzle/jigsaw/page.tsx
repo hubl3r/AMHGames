@@ -551,8 +551,8 @@ export default function JigsawPage() {
               }}>
                 <canvas
                   ref={canvasRef}
-                  resize="true"
-                  data-paper-resize="true"
+                  id="jigsaw-canvas"
+                  style={{ display: 'block', width: '100%', height: 'auto' }}
                 />
               </div>
 
