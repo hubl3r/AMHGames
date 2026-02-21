@@ -44,6 +44,13 @@ export default function JigsawPage() {
     paper.setup(canvas)
     const scope = paper.project
     
+    // Resize canvas to fit viewport
+    const canvasWidth = Math.min(1200, window.innerWidth - 40)
+    const canvasHeight = Math.min(800, window.innerHeight - 300)
+    canvas.width = canvasWidth
+    canvas.height = canvasHeight
+    paper.view.viewSize = new paper.Size(canvasWidth, canvasHeight)
+    
     // Create puzzle image raster
     const raster = new paper.Raster(img)
     raster.position = paper.view.center
@@ -55,10 +62,10 @@ export default function JigsawPage() {
     const puzzleHeight = tileWidth * numRows
     raster.size = new paper.Size(puzzleWidth, puzzleHeight)
     
-    // Create play area background
+    // Create play area background (smaller to leave room for pieces)
     const playArea = new paper.Path.Rectangle({
       center: paper.view.center,
-      size: [puzzleWidth + 100, puzzleHeight + 100],
+      size: [puzzleWidth + 50, puzzleHeight + 50],
       fillColor: 'rgba(0,0,0,0.2)'
     })
     playArea.sendToBack()
@@ -198,89 +205,91 @@ export default function JigsawPage() {
       }
     }
 
-    // Shuffle pieces around perimeter
+    // Shuffle pieces around the board perimeter (all visible)
     const shufflePerimeter = () => {
-      const margin = tileWidth * 0.2
-      const spacing = tileWidth + margin
-      const boardBounds = playArea.bounds
+      const centerX = paper.view.center.x
+      const centerY = paper.view.center.y
+      const boardWidth = puzzleWidth
+      const boardHeight = puzzleHeight
       
-      let ring = 1
+      // Place pieces in a rectangle around the board
+      const gap = 20
+      const piecesPerSide = Math.ceil(game.tiles.length / 4)
+      
       let placed = 0
-      const total = game.tiles.length
-
-      while (placed < total) {
-        // Calculate ring dimensions
-        const ringOffset = spacing * (ring - 0.5)
-        const topLeft = boardBounds.center.subtract([
-          boardBounds.width / 2 + ringOffset,
-          boardBounds.height / 2 + ringOffset
-        ])
-        
-        const cols = Math.floor(boardBounds.width / spacing) + 2 * ring
-        const rows = Math.floor(boardBounds.height / spacing) + 2 * ring
-        const perimeter = (cols + rows) * 2 - 4
-        
-        const xSpacing = (boardBounds.width + spacing * (ring * 2 - 1)) / (cols - 1)
-        const ySpacing = (boardBounds.height + spacing * (ring * 2 - 1)) / (rows - 1)
-
-        // Place pieces around this ring
-        for (let i = 0; i < perimeter && placed < total; i++, placed++) {
-          let pos: any
-          
-          if (i < cols) {
-            // Top edge
-            pos = topLeft.add([i * xSpacing, 0])
-          } else if (i < cols + rows - 1) {
-            // Right edge
-            pos = topLeft.add([boardBounds.width + ringOffset * 2, (i - cols + 1) * ySpacing])
-          } else if (i < cols * 2 + rows - 2) {
-            // Bottom edge
-            pos = topLeft.add([(cols * 2 + rows - 2 - i) * xSpacing, boardBounds.height + ringOffset * 2])
-          } else {
-            // Left edge
-            pos = topLeft.add([0, (cols * 2 + rows * 2 - 4 - i) * ySpacing])
-          }
-
-          game.tiles[placed].position = pos
-        }
-        
-        ring++
+      
+      // Top side
+      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
+        const x = centerX - boardWidth/2 + (i * (boardWidth / piecesPerSide))
+        const y = centerY - boardHeight/2 - tileWidth - gap
+        game.tiles[placed].position = new paper.Point(x, y)
+      }
+      
+      // Right side
+      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
+        const x = centerX + boardWidth/2 + tileWidth + gap
+        const y = centerY - boardHeight/2 + (i * (boardHeight / piecesPerSide))
+        game.tiles[placed].position = new paper.Point(x, y)
+      }
+      
+      // Bottom side
+      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
+        const x = centerX + boardWidth/2 - (i * (boardWidth / piecesPerSide))
+        const y = centerY + boardHeight/2 + tileWidth + gap
+        game.tiles[placed].position = new paper.Point(x, y)
+      }
+      
+      // Left side
+      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
+        const x = centerX - boardWidth/2 - tileWidth - gap
+        const y = centerY + boardHeight/2 - (i * (boardHeight / piecesPerSide))
+        game.tiles[placed].position = new paper.Point(x, y)
       }
     }
 
     shufflePerimeter()
 
-    // Mouse handlers
+    // Mouse/Touch handlers
     const tool = new paper.Tool()
 
     tool.onMouseDown = (event: any) => {
+      if (game.complete) return
+      
       const hitResult = scope.project.hitTest(event.point, {
         fill: true,
-        tolerance: 5
+        stroke: true,
+        tolerance: 10
       })
 
-      if (hitResult?.item?.parent) {
-        let tile = hitResult.item.parent
-        // Find the actual tile group
+      if (hitResult?.item) {
+        let tile = hitResult.item
+        
+        // Find the tile group (might be nested)
         while (tile && !tile.gridPosition) {
           tile = tile.parent
         }
         
-        if (tile) {
+        if (tile && tile.gridPosition) {
           game.selectedTile = tile
           game.dragging = true
-          tile.bringToFront()
+          
+          // Bring entire group to front
+          tile.pieceGroup.forEach((piece: any) => {
+            piece.bringToFront()
+          })
         }
       }
     }
 
     tool.onMouseDrag = (event: any) => {
-      if (game.selectedTile && game.dragging) {
-        // Move all pieces in the group
-        game.selectedTile.pieceGroup.forEach((piece: any) => {
-          piece.position = piece.position.add(event.delta)
-        })
-      }
+      if (!game.selectedTile || !game.dragging || game.complete) return
+      
+      // Move all pieces in the group together
+      game.selectedTile.pieceGroup.forEach((piece: any) => {
+        piece.position = piece.position.add(event.delta)
+      })
+      
+      paper.view.draw()
     }
 
     tool.onMouseUp = () => {
@@ -499,12 +508,16 @@ export default function JigsawPage() {
                 </button>
               </div>
 
-              <div className="mx-auto rounded-xl" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
+              <div className="mx-auto rounded-xl overflow-hidden" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
                 <canvas
                   ref={canvasRef}
-                  width={1200}
-                  height={800}
-                  style={{ display: 'block', width: '100%', height: 'auto', touchAction: 'none' }}
+                  style={{ 
+                    display: 'block', 
+                    width: '100%', 
+                    height: 'auto',
+                    touchAction: 'none',
+                    cursor: 'grab'
+                  }}
                 />
               </div>
 
