@@ -241,16 +241,21 @@ export default function JigsawPage() {
   }
 
   const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault()
     const dragState = dragStateRef.current
     if (!dragState.dragging) return
+
+    e.preventDefault()
+    e.stopPropagation()
 
     const canvas = canvasRef.current
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    const clientX = 'touches' in e ? e.touches[0]?.clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0]?.clientY : e.clientY
+    
+    if (clientX === undefined || clientY === undefined) return
+
     const x = clientX - rect.left
     const y = clientY - rect.top
 
@@ -268,13 +273,22 @@ export default function JigsawPage() {
 
     dragState.lastX = x
     dragState.lastY = y
-    render()
+    
+    // Render smoothly with RAF
+    if (!animFrameRef.current) {
+      animFrameRef.current = requestAnimationFrame(() => {
+        render()
+        animFrameRef.current = undefined
+      })
+    }
   }
 
   const handlePointerUp = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault()
     const dragState = dragStateRef.current
     if (!dragState.dragging) return
+
+    e.preventDefault()
+    e.stopPropagation()
 
     dragState.dragging = false
     const selectedGroupId = dragState.selectedGroupId
@@ -282,9 +296,9 @@ export default function JigsawPage() {
 
     if (selectedGroupId === null) return
 
-    // Try to snap
+    // Try to snap - more forgiving threshold
     const tiles = tilesRef.current
-    const snapThreshold = 25
+    const snapThreshold = 30
     const selectedTiles = tiles.filter(t => t.groupId === selectedGroupId)
 
     for (const tile of selectedTiles) {
@@ -304,16 +318,22 @@ export default function JigsawPage() {
         const dist = Math.hypot(neighbor.x - expectedX, neighbor.y - expectedY)
 
         if (dist < snapThreshold) {
-          // Snap and merge groups
+          // Snap neighbor to exact position relative to tile
           neighbor.x = expectedX
           neighbor.y = expectedY
 
+          // Merge groups - update all tiles from neighbor's old group
           const oldGroupId = neighbor.groupId
           const newGroupId = tile.groupId
 
           for (const t of tiles) {
             if (t.groupId === oldGroupId) {
               t.groupId = newGroupId
+              // Also adjust position to maintain relative positioning
+              const relGridX = t.gridX - neighbor.gridX
+              const relGridY = t.gridY - neighbor.gridY
+              t.x = neighbor.x + relGridX * TILE_SIZE
+              t.y = neighbor.y + relGridY * TILE_SIZE
             }
           }
         }
@@ -358,19 +378,10 @@ export default function JigsawPage() {
     img.src = url
   }
 
-  // Animation loop
+  // Render on demand
   useEffect(() => {
-    const animate = () => {
-      if (dragStateRef.current.dragging) {
-        render()
-      }
-      animFrameRef.current = requestAnimationFrame(animate)
-    }
-    animate()
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-    }
-  }, [])
+    render()
+  }, [complete])
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
@@ -441,7 +452,7 @@ export default function JigsawPage() {
               </button>
             </div>
 
-            <div className="mx-auto overflow-auto rounded-xl" style={{ maxWidth: '100%', maxHeight: '70vh', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
+            <div className="mx-auto overflow-auto rounded-xl relative" style={{ maxWidth: '100%', maxHeight: '70vh', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch' }}>
               <canvas
                 ref={canvasRef}
                 onMouseDown={handlePointerDown}
@@ -451,7 +462,14 @@ export default function JigsawPage() {
                 onTouchStart={handlePointerDown}
                 onTouchMove={handlePointerMove}
                 onTouchEnd={handlePointerUp}
-                style={{ display: 'block', cursor: 'grab', touchAction: 'none' }}
+                onTouchCancel={handlePointerUp}
+                style={{ 
+                  display: 'block', 
+                  cursor: dragStateRef.current?.dragging ? 'grabbing' : 'grab', 
+                  touchAction: 'none',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none'
+                }}
               />
             </div>
 
