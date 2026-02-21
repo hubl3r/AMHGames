@@ -4,7 +4,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, RotateCcw, CheckCircle, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Upload, RotateCcw, CheckCircle, Sparkles } from 'lucide-react'
 
 type Point = { x: number; y: number }
 type Tile = {
@@ -21,6 +21,27 @@ type Tile = {
 
 const TILE_SIZE = 100
 const TAB_SIZE = 20
+const MARGIN = TILE_SIZE * 0.2
+
+// Preloaded images
+const SAMPLE_IMAGES = [
+  { 
+    url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop',
+    name: 'Mountain Landscape'
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1511593358241-7eea1f3c84e5?w=800&h=600&fit=crop',
+    name: 'Tropical Waterfall'
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&h=600&fit=crop',
+    name: 'Forest Path'
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=800&h=600&fit=crop',
+    name: 'Colorful Parrots'
+  }
+]
 
 export default function JigsawPage() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
@@ -121,15 +142,15 @@ export default function JigsawPage() {
   }
 
   // Initialize puzzle
-  const initPuzzle = (img: HTMLImageElement) => {
+  const initPuzzle = (img: HTMLImageElement, scatter = true) => {
     if (!canvasRef.current || !boardRef.current) return
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')!
     
-    // Set canvas size
-    canvas.width = numCols * TILE_SIZE * 2
-    canvas.height = numRows * TILE_SIZE * 2
+    // Set canvas size - larger work area
+    canvas.width = 1200
+    canvas.height = 800
 
     // Generate random tab pattern
     const tabPattern: number[][] = []
@@ -145,14 +166,13 @@ export default function JigsawPage() {
 
     // Create tiles
     const newTiles: Tile[] = []
-    const margin = TILE_SIZE * 0.2
 
     for (let y = 0; y < numRows; y++) {
       for (let x = 0; x < numCols; x++) {
         const tileCanvas = document.createElement('canvas')
         const tileCtx = tileCanvas.getContext('2d')!
-        tileCanvas.width = TILE_SIZE + margin * 2
-        tileCanvas.height = TILE_SIZE + margin * 2
+        tileCanvas.width = TILE_SIZE + MARGIN * 2
+        tileCanvas.height = TILE_SIZE + MARGIN * 2
 
         // Create piece path
         const path = createPiecePath(
@@ -163,33 +183,49 @@ export default function JigsawPage() {
 
         // Draw piece with image
         tileCtx.save()
-        tileCtx.translate(margin, margin)
+        tileCtx.translate(MARGIN, MARGIN)
         tileCtx.clip(path)
         tileCtx.drawImage(
           img,
           (x * img.width) / numCols, (y * img.height) / numRows,
           img.width / numCols, img.height / numRows,
-          -margin, -margin,
-          TILE_SIZE + margin * 2, TILE_SIZE + margin * 2
+          -MARGIN, -MARGIN,
+          TILE_SIZE + MARGIN * 2, TILE_SIZE + MARGIN * 2
         )
         tileCtx.restore()
 
         // Draw outline
         tileCtx.save()
-        tileCtx.translate(margin, margin)
+        tileCtx.translate(MARGIN, MARGIN)
         tileCtx.strokeStyle = 'rgba(255,255,255,0.3)'
         tileCtx.lineWidth = 1
         tileCtx.stroke(path)
         tileCtx.restore()
 
+        // Position: either scattered or in grid on right side
+        let position: Point
+        if (scatter) {
+          // Scatter pieces around the canvas
+          position = {
+            x: 400 + Math.random() * 700,
+            y: 50 + Math.random() * 700
+          }
+        } else {
+          // Arrange in grid on right side
+          const gridCols = Math.ceil(Math.sqrt(numCols * numRows))
+          const gridX = (x + y * numCols) % gridCols
+          const gridY = Math.floor((x + y * numCols) / gridCols)
+          position = {
+            x: 500 + gridX * (TILE_SIZE + 20),
+            y: 100 + gridY * (TILE_SIZE + 20)
+          }
+        }
+
         const tile: Tile = {
           id: y * numCols + x,
           gridX: x,
           gridY: y,
-          position: {
-            x: 500 + Math.random() * 300,
-            y: 50 + Math.random() * 400
-          },
+          position,
           group: [],
           canvas: tileCanvas,
           ctx: tileCtx,
@@ -202,6 +238,28 @@ export default function JigsawPage() {
 
     setTiles(newTiles)
     setComplete(false)
+  }
+
+  // Scatter pieces randomly
+  const scatterPieces = () => {
+    setTiles(prev => prev.map(tile => ({
+      ...tile,
+      position: {
+        x: 400 + Math.random() * 700,
+        y: 50 + Math.random() * 700
+      }
+    })))
+  }
+
+  // Load sample image
+  const loadSampleImage = (url: string) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      setImage(img)
+      initPuzzle(img)
+    }
+    img.src = url
   }
 
   // Handle image upload
@@ -226,20 +284,24 @@ export default function JigsawPage() {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Sort by z-index (selected group on top)
+    // Sort tiles: selected group last (on top)
     const sortedTiles = [...tiles].sort((a, b) => {
-      if (selectedGroup?.includes(a)) return 1
-      if (selectedGroup?.includes(b)) return -1
+      const aSelected = selectedGroup?.includes(a)
+      const bSelected = selectedGroup?.includes(b)
+      if (aSelected && !bSelected) return 1
+      if (!aSelected && bSelected) return -1
       return 0
     })
 
     for (const tile of sortedTiles) {
       ctx.save()
-      ctx.globalAlpha = selectedGroup?.includes(tile) ? 1 : 0.95
+      ctx.shadowColor = selectedGroup?.includes(tile) ? 'rgba(168,85,247,0.5)' : 'rgba(0,0,0,0.3)'
+      ctx.shadowBlur = selectedGroup?.includes(tile) ? 15 : 10
+      ctx.shadowOffsetY = 5
       ctx.drawImage(
         tile.canvas,
-        tile.position.x - TILE_SIZE * 0.2,
-        tile.position.y - TILE_SIZE * 0.2
+        tile.position.x - MARGIN,
+        tile.position.y - MARGIN
       )
       ctx.restore()
     }
@@ -261,8 +323,8 @@ export default function JigsawPage() {
     }
 
     return {
-      x: (clientX - rect.left) / zoom,
-      y: (clientY - rect.top) / zoom
+      x: clientX - rect.left,
+      y: clientY - rect.top
     }
   }
 
@@ -271,22 +333,28 @@ export default function JigsawPage() {
     const pos = getPointerPosition(e)
     if (!pos) return
 
-    // Find clicked tile (reverse order - top tiles first)
-    const sortedTiles = [...tiles].reverse()
-    for (const tile of sortedTiles) {
-      const margin = TILE_SIZE * 0.2
-      const relX = pos.x - tile.position.x + margin
-      const relY = pos.y - tile.position.y + margin
+    // Find clicked tile (check from top to bottom in render order)
+    const sortedTiles = [...tiles].sort((a, b) => {
+      const aSelected = selectedGroup?.includes(a)
+      const bSelected = selectedGroup?.includes(b)
+      if (aSelected && !bSelected) return 1
+      if (!aSelected && bSelected) return -1
+      return 0
+    }).reverse()
 
-      // Simple bounding box check first
-      if (relX >= 0 && relX <= TILE_SIZE + margin * 2 && 
-          relY >= 0 && relY <= TILE_SIZE + margin * 2) {
+    for (const tile of sortedTiles) {
+      const relX = pos.x - tile.position.x + MARGIN
+      const relY = pos.y - tile.position.y + MARGIN
+
+      // Bounding box check
+      if (relX >= 0 && relX <= TILE_SIZE + MARGIN * 2 && 
+          relY >= 0 && relY <= TILE_SIZE + MARGIN * 2) {
         
-        // More precise path check
+        // Path check
         const ctx = tile.ctx
         ctx.save()
-        ctx.translate(margin, margin)
-        const hit = ctx.isPointInPath(tile.path, relX - margin, relY - margin)
+        ctx.translate(MARGIN, MARGIN)
+        const hit = ctx.isPointInPath(tile.path, relX - MARGIN, relY - MARGIN)
         ctx.restore()
 
         if (hit) {
@@ -408,18 +476,41 @@ export default function JigsawPage() {
         </div>
 
         {!image ? (
-          <div className="max-w-md mx-auto">
+          <div className="max-w-2xl mx-auto space-y-6">
             <label className="block p-12 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:border-purple-400 hover:bg-purple-500/5" style={{ borderColor: 'rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.05)' }}>
               <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
               <div className="text-center">
                 <Upload size={48} className="mx-auto mb-4 text-purple-400" />
-                <p className="text-xl font-semibold mb-2 text-white">Upload an Image</p>
-                <p className="text-sm text-gray-400">Click to select a photo for your puzzle</p>
+                <p className="text-xl font-semibold mb-2 text-white">Upload Your Own Image</p>
+                <p className="text-sm text-gray-400">Click to select a photo from your device</p>
               </div>
             </label>
 
+            {/* Sample images */}
+            <div>
+              <p className="text-center text-sm text-purple-300 mb-3">Or try a sample image:</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {SAMPLE_IMAGES.map((sample, i) => (
+                  <button
+                    key={i}
+                    onClick={() => loadSampleImage(sample.url)}
+                    className="group relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-purple-400 transition-all"
+                  >
+                    <img 
+                      src={sample.url} 
+                      alt={sample.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <p className="text-white text-xs font-semibold">{sample.name}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Difficulty selector */}
-            <div className="mt-6 p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)' }}>
+            <div className="p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)' }}>
               <label className="block text-sm text-purple-300 mb-2">Difficulty:</label>
               <select value={`${numCols}x${numRows}`} onChange={e => {
                 const [cols, rows] = e.target.value.split('x').map(Number)
@@ -435,23 +526,21 @@ export default function JigsawPage() {
           </div>
         ) : (
           <div>
-            <div className="flex justify-center gap-4 mb-4 flex-wrap">
+            <div className="flex justify-center gap-3 mb-4 flex-wrap">
               <button onClick={() => image && initPuzzle(image)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <RotateCcw size={16} /> Shuffle
+                <RotateCcw size={16} /> Reset
               </button>
-              <button onClick={() => setZoom(z => Math.min(2, z * 1.2))} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <ZoomIn size={16} />
-              </button>
-              <button onClick={() => setZoom(z => Math.max(0.5, z / 1.2))} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <ZoomOut size={16} />
+              <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                <Sparkles size={16} /> Scatter
               </button>
               <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                 <Upload size={16} /> New Image
               </button>
             </div>
 
-            <div ref={boardRef} className="mx-auto overflow-hidden rounded-xl" style={{ 
+            <div ref={boardRef} className="mx-auto overflow-auto rounded-xl" style={{ 
               maxWidth: '100%',
+              maxHeight: '70vh',
               border: '2px solid rgba(168,85,247,0.3)',
               background: 'rgba(0,0,0,0.3)',
             }}>
@@ -466,11 +555,7 @@ export default function JigsawPage() {
                 onTouchEnd={handlePointerUp}
                 style={{ 
                   display: 'block',
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top left',
                   cursor: selectedGroup ? 'grabbing' : 'grab',
-                  maxWidth: '100%',
-                  height: 'auto',
                   touchAction: 'none'
                 }}
               />
