@@ -37,7 +37,7 @@ export default function JigsawPage() {
     
     // Clear any existing puzzle
     if (gameRef.current?.scope) {
-      gameRef.current.scope.project.clear()
+      gameRef.current.scope.clear() //Removed .project
     }
 
     // Setup Paper.js
@@ -232,7 +232,7 @@ export default function JigsawPage() {
       if (game.complete) return
       
       // Check if clicking on a piece
-      const hitResult = scope.project.hitTest(event.point, {
+      const hitResult = scope.hitTest(event.point, {//Removed.project after scope
         fill: true,
         stroke: true,
         tolerance: 10
