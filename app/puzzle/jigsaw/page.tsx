@@ -44,16 +44,16 @@ export default function JigsawPage() {
     paper.setup(canvas)
     const scope = paper.project
     
-    // Resize canvas to fit viewport
-    const canvasWidth = Math.min(1200, window.innerWidth - 40)
-    const canvasHeight = Math.min(800, window.innerHeight - 300)
+    // Make canvas MUCH bigger - plenty of room
+    const canvasWidth = 1600
+    const canvasHeight = 1200
     canvas.width = canvasWidth
     canvas.height = canvasHeight
     paper.view.viewSize = new paper.Size(canvasWidth, canvasHeight)
     
     // Create puzzle image raster
     const raster = new paper.Raster(img)
-    raster.position = paper.view.center
+    raster.position = new paper.Point(400, 300) // Top-left area
     raster.visible = false
     
     // Size image to fit
@@ -62,11 +62,13 @@ export default function JigsawPage() {
     const puzzleHeight = tileWidth * numRows
     raster.size = new paper.Size(puzzleWidth, puzzleHeight)
     
-    // Create play area background (smaller to leave room for pieces)
+    // Create play area background (where completed puzzle goes)
     const playArea = new paper.Path.Rectangle({
-      center: paper.view.center,
-      size: [puzzleWidth + 50, puzzleHeight + 50],
-      fillColor: 'rgba(0,0,0,0.2)'
+      center: raster.position,
+      size: [puzzleWidth + 20, puzzleHeight + 20],
+      fillColor: 'rgba(0,0,0,0.2)',
+      strokeColor: 'rgba(168,85,247,0.3)',
+      strokeWidth: 2
     })
     playArea.sendToBack()
 
@@ -75,12 +77,15 @@ export default function JigsawPage() {
       tiles: [] as any[],
       selectedTile: null as any,
       dragging: false,
+      panning: false,
+      lastPoint: null as any,
       tileWidth,
       numCols,
       numRows,
       raster,
       playArea,
-      complete: false
+      complete: false,
+      zIndex: 0 // Track z-order
     }
 
     // Tab curve coordinates (from JigsawGalaxy)
@@ -205,56 +210,34 @@ export default function JigsawPage() {
       }
     }
 
-    // Shuffle pieces around the board perimeter (all visible)
+    // Shuffle pieces to the right of the board (plenty of space)
     const shufflePerimeter = () => {
-      const centerX = paper.view.center.x
-      const centerY = paper.view.center.y
-      const boardWidth = puzzleWidth
-      const boardHeight = puzzleHeight
+      const boardRight = raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = raster.position.y - puzzleHeight / 2
       
-      // Place pieces in a rectangle around the board
-      const gap = 20
-      const piecesPerSide = Math.ceil(game.tiles.length / 4)
+      const rows = Math.ceil(Math.sqrt(game.tiles.length))
+      const cols = Math.ceil(game.tiles.length / rows)
       
-      let placed = 0
-      
-      // Top side
-      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
-        const x = centerX - boardWidth/2 + (i * (boardWidth / piecesPerSide))
-        const y = centerY - boardHeight/2 - tileWidth - gap
-        game.tiles[placed].position = new paper.Point(x, y)
-      }
-      
-      // Right side
-      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
-        const x = centerX + boardWidth/2 + tileWidth + gap
-        const y = centerY - boardHeight/2 + (i * (boardHeight / piecesPerSide))
-        game.tiles[placed].position = new paper.Point(x, y)
-      }
-      
-      // Bottom side
-      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
-        const x = centerX + boardWidth/2 - (i * (boardWidth / piecesPerSide))
-        const y = centerY + boardHeight/2 + tileWidth + gap
-        game.tiles[placed].position = new paper.Point(x, y)
-      }
-      
-      // Left side
-      for (let i = 0; i < piecesPerSide && placed < game.tiles.length; i++, placed++) {
-        const x = centerX - boardWidth/2 - tileWidth - gap
-        const y = centerY + boardHeight/2 - (i * (boardHeight / piecesPerSide))
-        game.tiles[placed].position = new paper.Point(x, y)
-      }
+      game.tiles.forEach((tile, i) => {
+        const row = Math.floor(i / cols)
+        const col = i % cols
+        
+        const x = boardRight + col * (tileWidth + 30) + Math.random() * 20
+        const y = boardTop + row * (tileWidth + 30) + Math.random() * 20
+        
+        tile.position = new paper.Point(x, y)
+      })
     }
 
     shufflePerimeter()
 
-    // Mouse/Touch handlers
+    // Mouse/Touch handlers with pan and zoom
     const tool = new paper.Tool()
 
     tool.onMouseDown = (event: any) => {
       if (game.complete) return
       
+      // Check if clicking on a piece
       const hitResult = scope.project.hitTest(event.point, {
         fill: true,
         stroke: true,
@@ -264,41 +247,96 @@ export default function JigsawPage() {
       if (hitResult?.item) {
         let tile = hitResult.item
         
-        // Find the tile group (might be nested)
+        // Find the tile group
         while (tile && !tile.gridPosition) {
           tile = tile.parent
         }
         
         if (tile && tile.gridPosition) {
+          // Select this piece
           game.selectedTile = tile
           game.dragging = true
+          game.lastPoint = event.point
           
-          // Bring entire group to front
+          // Bring entire group to front and keep it there
+          game.zIndex++
           tile.pieceGroup.forEach((piece: any) => {
             piece.bringToFront()
+            piece.data.zIndex = game.zIndex
           })
+          
+          return
         }
       }
+      
+      // If not clicking a piece, start panning
+      game.panning = true
+      game.lastPoint = event.point
     }
 
     tool.onMouseDrag = (event: any) => {
-      if (!game.selectedTile || !game.dragging || game.complete) return
-      
-      // Move all pieces in the group together
-      game.selectedTile.pieceGroup.forEach((piece: any) => {
-        piece.position = piece.position.add(event.delta)
-      })
-      
-      paper.view.draw()
+      if (game.dragging && game.selectedTile) {
+        // Drag the piece
+        const delta = event.point.subtract(game.lastPoint)
+        game.selectedTile.pieceGroup.forEach((piece: any) => {
+          piece.position = piece.position.add(delta)
+        })
+        game.lastPoint = event.point
+        paper.view.draw()
+        
+      } else if (game.panning) {
+        // Pan the view
+        const delta = event.point.subtract(game.lastPoint)
+        paper.view.translate(delta)
+        game.lastPoint = event.point
+      }
     }
 
     tool.onMouseUp = () => {
-      if (game.selectedTile && game.dragging) {
+      if (game.dragging && game.selectedTile) {
+        // Piece stays on top (already set zIndex)
         tryConnect()
         game.selectedTile = null
-        game.dragging = false
       }
+      
+      game.dragging = false
+      game.panning = false
+      game.lastPoint = null
     }
+
+    // Add zoom with mouse wheel
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? 0.9 : 1.1
+      const mousePos = paper.view.viewToProject(new paper.Point(e.offsetX, e.offsetY))
+      
+      paper.view.scale(delta, mousePos)
+    }, { passive: false })
+
+    // Add pinch-to-zoom for mobile
+    let lastDist = 0
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastDist = Math.sqrt(dx * dx + dy * dy)
+      }
+    })
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault()
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        
+        if (lastDist > 0) {
+          const scale = dist / lastDist
+          paper.view.scale(scale)
+        }
+        lastDist = dist
+      }
+    }, { passive: false })
 
     // Snap and connect pieces
     const tryConnect = () => {
@@ -508,15 +546,22 @@ export default function JigsawPage() {
                 </button>
               </div>
 
-              <div className="mx-auto rounded-xl overflow-hidden" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
+              <div className="mb-3 text-center text-sm text-purple-300">
+                <p>💡 Drag pieces to move • Drag background to pan • Scroll/pinch to zoom</p>
+              </div>
+
+              <div className="mx-auto rounded-xl overflow-auto" style={{ 
+                maxWidth: '100%', 
+                maxHeight: '70vh',
+                border: '2px solid rgba(168,85,247,0.3)', 
+                background: 'rgba(0,0,0,0.3)' 
+              }}>
                 <canvas
                   ref={canvasRef}
                   style={{ 
-                    display: 'block', 
-                    width: '100%', 
-                    height: 'auto',
-                    touchAction: 'none',
-                    cursor: 'grab'
+                    display: 'block',
+                    cursor: 'grab',
+                    minWidth: '100%'
                   }}
                 />
               </div>
