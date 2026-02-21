@@ -245,45 +245,68 @@ export default function JigsawPage() {
     }
   }, [tiles, selectedGroup])
 
-  // Mouse handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Mouse/Touch handlers
+  const getPointerPosition = (e: React.MouseEvent | React.TouchEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
+    if (!rect) return null
 
-    const x = (e.clientX - rect.left) / zoom
-    const y = (e.clientY - rect.top) / zoom
+    let clientX: number, clientY: number
+    if ('touches' in e) {
+      if (e.touches.length === 0) return null
+      clientX = e.touches[0].clientX
+      clientY = e.touches[0].clientY
+    } else {
+      clientX = e.clientX
+      clientY = e.clientY
+    }
 
-    // Find clicked tile
-    for (let i = tiles.length - 1; i >= 0; i--) {
-      const tile = tiles[i]
-      const ctx = tile.ctx
-      ctx.save()
-      ctx.translate(TILE_SIZE * 0.2, TILE_SIZE * 0.2)
-      const hit = ctx.isPointInPath(
-        tile.path,
-        x - tile.position.x,
-        y - tile.position.y
-      )
-      ctx.restore()
+    return {
+      x: (clientX - rect.left) / zoom,
+      y: (clientY - rect.top) / zoom
+    }
+  }
 
-      if (hit) {
-        setSelectedGroup(tile.group)
-        setDragStart({ x, y })
-        break
+  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    const pos = getPointerPosition(e)
+    if (!pos) return
+
+    // Find clicked tile (reverse order - top tiles first)
+    const sortedTiles = [...tiles].reverse()
+    for (const tile of sortedTiles) {
+      const margin = TILE_SIZE * 0.2
+      const relX = pos.x - tile.position.x + margin
+      const relY = pos.y - tile.position.y + margin
+
+      // Simple bounding box check first
+      if (relX >= 0 && relX <= TILE_SIZE + margin * 2 && 
+          relY >= 0 && relY <= TILE_SIZE + margin * 2) {
+        
+        // More precise path check
+        const ctx = tile.ctx
+        ctx.save()
+        ctx.translate(margin, margin)
+        const hit = ctx.isPointInPath(tile.path, relX - margin, relY - margin)
+        ctx.restore()
+
+        if (hit) {
+          setSelectedGroup(tile.group)
+          setDragStart(pos)
+          return
+        }
       }
     }
   }
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!selectedGroup || !dragStart) return
+    e.preventDefault()
 
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
+    const pos = getPointerPosition(e)
+    if (!pos) return
 
-    const x = (e.clientX - rect.left) / zoom
-    const y = (e.clientY - rect.top) / zoom
-    const dx = x - dragStart.x
-    const dy = y - dragStart.y
+    const dx = pos.x - dragStart.x
+    const dy = pos.y - dragStart.y
 
     setTiles(prev => prev.map(tile => {
       if (selectedGroup.includes(tile)) {
@@ -298,21 +321,22 @@ export default function JigsawPage() {
       return tile
     }))
 
-    setDragStart({ x, y })
+    setDragStart(pos)
   }
 
-  const handleMouseUp = () => {
+  const handlePointerUp = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
     if (!selectedGroup) return
 
     // Try to connect pieces
-    const snapThreshold = 15
+    const snapThreshold = 20
     let connected = false
 
     setTiles(prev => {
       const newTiles = [...prev]
       
       for (const tile of selectedGroup) {
-        // Check neighbors
+        // Check all 4 neighbors
         const neighbors = [
           { dx: 1, dy: 0 },
           { dx: -1, dy: 0 },
@@ -433,17 +457,21 @@ export default function JigsawPage() {
             }}>
               <canvas
                 ref={canvasRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onMouseDown={handlePointerDown}
+                onMouseMove={handlePointerMove}
+                onMouseUp={handlePointerUp}
+                onMouseLeave={handlePointerUp}
+                onTouchStart={handlePointerDown}
+                onTouchMove={handlePointerMove}
+                onTouchEnd={handlePointerUp}
                 style={{ 
                   display: 'block',
                   transform: `scale(${zoom})`,
                   transformOrigin: 'top left',
                   cursor: selectedGroup ? 'grabbing' : 'grab',
                   maxWidth: '100%',
-                  height: 'auto'
+                  height: 'auto',
+                  touchAction: 'none'
                 }}
               />
             </div>
