@@ -42,18 +42,12 @@ export default function JigsawPage() {
 
     // Setup Paper.js
     paper.setup(canvas)
+    paper.view.viewSize = new paper.Size(1200, 800)
     const scope = paper.project
-    
-    // Make canvas MUCH bigger - plenty of room
-    const canvasWidth = 1600
-    const canvasHeight = 1200
-    canvas.width = canvasWidth
-    canvas.height = canvasHeight
-    paper.view.viewSize = new paper.Size(canvasWidth, canvasHeight)
     
     // Create puzzle image raster
     const raster = new paper.Raster(img)
-    raster.position = new paper.Point(400, 300) // Top-left area
+    raster.position = new paper.Point(300, 250) // Left side
     raster.visible = false
     
     // Size image to fit
@@ -85,7 +79,7 @@ export default function JigsawPage() {
       raster,
       playArea,
       complete: false,
-      zIndex: 0 // Track z-order
+      zIndex: 0
     }
 
     // Tab curve coordinates (from JigsawGalaxy)
@@ -550,19 +544,15 @@ export default function JigsawPage() {
                 <p>💡 Drag pieces to move • Drag background to pan • Scroll/pinch to zoom</p>
               </div>
 
-              <div className="mx-auto rounded-xl overflow-auto" style={{ 
+              <div className="mx-auto rounded-xl" style={{ 
                 maxWidth: '100%', 
-                maxHeight: '70vh',
                 border: '2px solid rgba(168,85,247,0.3)', 
                 background: 'rgba(0,0,0,0.3)' 
               }}>
                 <canvas
                   ref={canvasRef}
-                  style={{ 
-                    display: 'block',
-                    cursor: 'grab',
-                    minWidth: '100%'
-                  }}
+                  resize="true"
+                  data-paper-resize="true"
                 />
               </div>
 
