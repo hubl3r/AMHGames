@@ -1,25 +1,10 @@
 // app/puzzle/jigsaw/page.tsx
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Upload, RotateCcw, CheckCircle, Sparkles } from 'lucide-react'
-
-type Point = { x: number; y: number }
-type Tile = {
-  id: number
-  gridX: number
-  gridY: number
-  x: number
-  y: number
-  groupId: number
-  canvas: HTMLCanvasElement
-  ctx: CanvasRenderingContext2D
-  path: Path2D
-}
-
-const TILE_SIZE = 100
-const MARGIN = TILE_SIZE * 0.2
+import Script from 'next/script'
 
 const SAMPLE_IMAGES = [
   { url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop', name: 'Mountain' },
@@ -28,93 +13,73 @@ const SAMPLE_IMAGES = [
   { url: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=800&h=600&fit=crop', name: 'Parrots' }
 ]
 
+declare global {
+  interface Window {
+    paper: any
+  }
+}
+
 export default function JigsawPage() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [numCols, setNumCols] = useState(4)
   const [numRows, setNumRows] = useState(3)
   const [complete, setComplete] = useState(false)
+  const [paperLoaded, setPaperLoaded] = useState(false)
   
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const tilesRef = useRef<Tile[]>([])
-  const dragStateRef = useRef<{
-    dragging: boolean
-    selectedGroupId: number | null
-    lastX: number
-    lastY: number
-  }>({ dragging: false, selectedGroupId: null, lastX: 0, lastY: 0 })
-  const animFrameRef = useRef<number>()
-
-  // Tab curve from JigsawGalaxy
-  const tabCurve = [0,0,35,15,37,5, 37,5,40,0,38,-5, 38,-5,20,-20,50,-20, 50,-20,80,-20,62,-5, 62,-5,60,0,63,5, 63,5,65,15,100,0]
-
-  const createPiecePath = (gridX: number, gridY: number, hasTop: boolean, hasRight: boolean, hasBottom: boolean, hasLeft: boolean, tabPattern: number[][]) => {
-    const path = new Path2D()
-    const scale = TILE_SIZE / 100
-    const pattern = tabPattern[gridY * numCols + gridX]
-
-    path.moveTo(0, 0)
-
-    // Top
-    if (hasTop && pattern[0] !== 0) {
-      const dir = pattern[0]
-      for (let i = 0; i < tabCurve.length; i += 6) {
-        path.bezierCurveTo(
-          tabCurve[i] * scale, dir * tabCurve[i+1] * scale,
-          tabCurve[i+2] * scale, dir * tabCurve[i+3] * scale,
-          tabCurve[i+4] * scale, dir * tabCurve[i+5] * scale
-        )
-      }
-    } else path.lineTo(TILE_SIZE, 0)
-
-    // Right
-    if (hasRight && pattern[1] !== 0) {
-      const dir = pattern[1]
-      for (let i = 0; i < tabCurve.length; i += 6) {
-        path.bezierCurveTo(
-          TILE_SIZE - dir * tabCurve[i+1] * scale, tabCurve[i] * scale,
-          TILE_SIZE - dir * tabCurve[i+3] * scale, tabCurve[i+2] * scale,
-          TILE_SIZE - dir * tabCurve[i+5] * scale, tabCurve[i+4] * scale
-        )
-      }
-    } else path.lineTo(TILE_SIZE, TILE_SIZE)
-
-    // Bottom
-    if (hasBottom && pattern[2] !== 0) {
-      const dir = pattern[2]
-      for (let i = 0; i < tabCurve.length; i += 6) {
-        path.bezierCurveTo(
-          TILE_SIZE - tabCurve[i] * scale, TILE_SIZE - dir * tabCurve[i+1] * scale,
-          TILE_SIZE - tabCurve[i+2] * scale, TILE_SIZE - dir * tabCurve[i+3] * scale,
-          TILE_SIZE - tabCurve[i+4] * scale, TILE_SIZE - dir * tabCurve[i+5] * scale
-        )
-      }
-    } else path.lineTo(0, TILE_SIZE)
-
-    // Left
-    if (hasLeft && pattern[3] !== 0) {
-      const dir = pattern[3]
-      for (let i = 0; i < tabCurve.length; i += 6) {
-        path.bezierCurveTo(
-          dir * tabCurve[i+1] * scale, TILE_SIZE - tabCurve[i] * scale,
-          dir * tabCurve[i+3] * scale, TILE_SIZE - tabCurve[i+2] * scale,
-          dir * tabCurve[i+5] * scale, TILE_SIZE - tabCurve[i+4] * scale
-        )
-      }
-    } else path.lineTo(0, 0)
-
-    path.closePath()
-    return path
-  }
+  const gameRef = useRef<any>(null)
 
   const initPuzzle = (img: HTMLImageElement) => {
-    if (!canvasRef.current) return
+    if (!canvasRef.current || !window.paper) return
 
+    const paper = window.paper
     const canvas = canvasRef.current
-    // Bigger canvas for better mobile navigation
-    canvas.width = 1600
-    canvas.height = 1000
+    
+    // Clear any existing puzzle
+    if (gameRef.current?.scope) {
+      gameRef.current.scope.project.clear()
+    }
 
-    // Generate tab pattern
+    // Setup Paper.js
+    paper.setup(canvas)
+    const scope = paper.project
+    
+    // Create puzzle image raster
+    const raster = new paper.Raster(img)
+    raster.position = paper.view.center
+    raster.visible = false
+    
+    // Size image to fit
+    const tileWidth = 100
+    const puzzleWidth = tileWidth * numCols
+    const puzzleHeight = tileWidth * numRows
+    raster.size = new paper.Size(puzzleWidth, puzzleHeight)
+    
+    // Create play area background
+    const playArea = new paper.Path.Rectangle({
+      center: paper.view.center,
+      size: [puzzleWidth + 100, puzzleHeight + 100],
+      fillColor: 'rgba(0,0,0,0.2)'
+    })
+    playArea.sendToBack()
+
+    const game = {
+      scope,
+      tiles: [] as any[],
+      selectedTile: null as any,
+      dragging: false,
+      tileWidth,
+      numCols,
+      numRows,
+      raster,
+      playArea,
+      complete: false
+    }
+
+    // Tab curve coordinates (from JigsawGalaxy)
+    const tabCurve = [0,0,35,15,37,5, 37,5,40,0,38,-5, 38,-5,20,-20,50,-20, 50,-20,80,-20,62,-5, 62,-5,60,0,63,5, 63,5,65,15,100,0]
+
+    // Generate random tab pattern
     const tabPattern: number[][] = []
     for (let y = 0; y < numRows; y++) {
       for (let x = 0; x < numCols; x++) {
@@ -126,283 +91,307 @@ export default function JigsawPage() {
       }
     }
 
-    // Create tiles
-    const tiles: Tile[] = []
+    // Create jigsaw mask for a piece
+    const createMask = (gridX: number, gridY: number) => {
+      const scale = tileWidth / 100
+      const pattern = tabPattern[gridY * numCols + gridX]
+      const path = new paper.Path()
+      
+      path.moveTo([0, 0])
+
+      // Top edge
+      if (gridY > 0 && pattern[0] !== 0) {
+        const dir = pattern[0]
+        for (let i = 0; i < tabCurve.length; i += 6) {
+          path.cubicCurveTo(
+            [tabCurve[i] * scale, dir * tabCurve[i+1] * scale],
+            [tabCurve[i+2] * scale, dir * tabCurve[i+3] * scale],
+            [tabCurve[i+4] * scale, dir * tabCurve[i+5] * scale]
+          )
+        }
+      } else {
+        path.lineTo([tileWidth, 0])
+      }
+
+      // Right edge
+      if (gridX < numCols - 1 && pattern[1] !== 0) {
+        const dir = pattern[1]
+        for (let i = 0; i < tabCurve.length; i += 6) {
+          path.cubicCurveTo(
+            [tileWidth - dir * tabCurve[i+1] * scale, tabCurve[i] * scale],
+            [tileWidth - dir * tabCurve[i+3] * scale, tabCurve[i+2] * scale],
+            [tileWidth - dir * tabCurve[i+5] * scale, tabCurve[i+4] * scale]
+          )
+        }
+      } else {
+        path.lineTo([tileWidth, tileWidth])
+      }
+
+      // Bottom edge
+      if (gridY < numRows - 1 && pattern[2] !== 0) {
+        const dir = pattern[2]
+        for (let i = 0; i < tabCurve.length; i += 6) {
+          path.cubicCurveTo(
+            [tileWidth - tabCurve[i] * scale, tileWidth - dir * tabCurve[i+1] * scale],
+            [tileWidth - tabCurve[i+2] * scale, tileWidth - dir * tabCurve[i+3] * scale],
+            [tileWidth - tabCurve[i+4] * scale, tileWidth - dir * tabCurve[i+5] * scale]
+          )
+        }
+      } else {
+        path.lineTo([0, tileWidth])
+      }
+
+      // Left edge
+      if (gridX > 0 && pattern[3] !== 0) {
+        const dir = pattern[3]
+        for (let i = 0; i < tabCurve.length; i += 6) {
+          path.cubicCurveTo(
+            [dir * tabCurve[i+1] * scale, tileWidth - tabCurve[i] * scale],
+            [dir * tabCurve[i+3] * scale, tileWidth - tabCurve[i+2] * scale],
+            [dir * tabCurve[i+5] * scale, tileWidth - tabCurve[i+4] * scale]
+          )
+        }
+      } else {
+        path.lineTo([0, 0])
+      }
+
+      path.closePath()
+      return path
+    }
+
+    // Create all pieces
     for (let y = 0; y < numRows; y++) {
       for (let x = 0; x < numCols; x++) {
-        const tileCanvas = document.createElement('canvas')
-        const tileCtx = tileCanvas.getContext('2d')!
-        tileCanvas.width = TILE_SIZE + MARGIN * 2
-        tileCanvas.height = TILE_SIZE + MARGIN * 2
-
-        const path = createPiecePath(x, y, y>0, x<numCols-1, y<numRows-1, x>0, tabPattern)
-
-        tileCtx.save()
-        tileCtx.translate(MARGIN, MARGIN)
-        tileCtx.clip(path)
-        tileCtx.drawImage(
-          img,
-          (x * img.width) / numCols, (y * img.height) / numRows,
-          img.width / numCols, img.height / numRows,
-          -MARGIN, -MARGIN,
-          TILE_SIZE + MARGIN * 2, TILE_SIZE + MARGIN * 2
+        const mask = createMask(x, y)
+        
+        // Get piece image
+        const pieceRaster = raster.getSubRaster(
+          new paper.Rectangle(
+            x * tileWidth - 20,
+            y * tileWidth - 20,
+            tileWidth + 40,
+            tileWidth + 40
+          )
         )
-        tileCtx.restore()
+        pieceRaster.position = new paper.Point(tileWidth / 2, tileWidth / 2)
 
-        // Don't draw outline initially - will be hidden when pieces connect
-        tileCtx.save()
-        tileCtx.translate(MARGIN, MARGIN)
-        tileCtx.strokeStyle = 'rgba(255,255,255,0.3)'
-        tileCtx.lineWidth = 1
-        tileCtx.stroke(path)
-        tileCtx.restore()
+        // Create outline
+        const outline = mask.clone()
+        outline.strokeColor = new paper.Color('rgba(255,255,255,0.3)')
+        outline.strokeWidth = 1
 
-        // Spread pieces more - keep in safe zone away from edges
-        const tile: Tile = {
-          id: y * numCols + x,
-          gridX: x,
-          gridY: y,
-          x: 600 + Math.random() * 850,  // More spread, avoid left edge
-          y: 100 + Math.random() * 750,   // More vertical spread
-          groupId: y * numCols + x,
-          canvas: tileCanvas,
-          ctx: tileCtx,
-          path
+        // Group: mask, image, outline
+        const group = new paper.Group([mask, pieceRaster, outline])
+        group.clipped = true
+        group.gridPosition = new paper.Point(x, y)
+        group.pieceGroup = [group]
+        
+        // Store offsets for alignment
+        group.offsets = [
+          mask.bounds.left,
+          mask.bounds.top,
+          mask.bounds.right - tileWidth,
+          mask.bounds.bottom - tileWidth
+        ]
+
+        game.tiles.push(group)
+      }
+    }
+
+    // Shuffle pieces around perimeter
+    const shufflePerimeter = () => {
+      const margin = tileWidth * 0.2
+      const spacing = tileWidth + margin
+      const boardBounds = playArea.bounds
+      
+      let ring = 1
+      let placed = 0
+      const total = game.tiles.length
+
+      while (placed < total) {
+        // Calculate ring dimensions
+        const ringOffset = spacing * (ring - 0.5)
+        const topLeft = boardBounds.center.subtract([
+          boardBounds.width / 2 + ringOffset,
+          boardBounds.height / 2 + ringOffset
+        ])
+        
+        const cols = Math.floor(boardBounds.width / spacing) + 2 * ring
+        const rows = Math.floor(boardBounds.height / spacing) + 2 * ring
+        const perimeter = (cols + rows) * 2 - 4
+        
+        const xSpacing = (boardBounds.width + spacing * (ring * 2 - 1)) / (cols - 1)
+        const ySpacing = (boardBounds.height + spacing * (ring * 2 - 1)) / (rows - 1)
+
+        // Place pieces around this ring
+        for (let i = 0; i < perimeter && placed < total; i++, placed++) {
+          let pos: any
+          
+          if (i < cols) {
+            // Top edge
+            pos = topLeft.add([i * xSpacing, 0])
+          } else if (i < cols + rows - 1) {
+            // Right edge
+            pos = topLeft.add([boardBounds.width + ringOffset * 2, (i - cols + 1) * ySpacing])
+          } else if (i < cols * 2 + rows - 2) {
+            // Bottom edge
+            pos = topLeft.add([(cols * 2 + rows - 2 - i) * xSpacing, boardBounds.height + ringOffset * 2])
+          } else {
+            // Left edge
+            pos = topLeft.add([0, (cols * 2 + rows * 2 - 4 - i) * ySpacing])
+          }
+
+          game.tiles[placed].position = pos
         }
-        tiles.push(tile)
+        
+        ring++
       }
     }
 
-    tilesRef.current = tiles
-    setComplete(false)
-    render()
-  }
+    shufflePerimeter()
 
-  const render = () => {
-    const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (!canvas || !ctx) return
+    // Mouse handlers
+    const tool = new paper.Tool()
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    const dragState = dragStateRef.current
-    const tiles = tilesRef.current
-
-    // Sort: selected group on top
-    const sorted = [...tiles].sort((a, b) => {
-      if (a.groupId === dragState.selectedGroupId && b.groupId !== dragState.selectedGroupId) return 1
-      if (b.groupId === dragState.selectedGroupId && a.groupId !== dragState.selectedGroupId) return -1
-      return 0
-    })
-
-    // Group pieces by groupId to determine which have outlines
-    const groupSizes = new Map<number, number>()
-    for (const tile of tiles) {
-      groupSizes.set(tile.groupId, (groupSizes.get(tile.groupId) || 0) + 1)
-    }
-
-    for (const tile of sorted) {
-      const isInGroup = (groupSizes.get(tile.groupId) || 1) > 1
-      
-      ctx.save()
-      ctx.shadowColor = tile.groupId === dragState.selectedGroupId ? 'rgba(168,85,247,0.6)' : 'rgba(0,0,0,0.3)'
-      ctx.shadowBlur = tile.groupId === dragState.selectedGroupId ? 20 : 10
-      ctx.shadowOffsetY = 5
-      
-      // Draw tile image
-      ctx.drawImage(tile.canvas, tile.x - MARGIN, tile.y - MARGIN)
-      
-      // Only draw outline if piece is alone (not connected)
-      if (!isInGroup) {
-        ctx.translate(tile.x, tile.y)
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-        ctx.lineWidth = 1
-        ctx.stroke(tile.path)
-      }
-      
-      ctx.restore()
-    }
-  }
-
-  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault()
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-    const x = clientX - rect.left
-    const y = clientY - rect.top
-
-    const tiles = tilesRef.current
-    const dragState = dragStateRef.current
-
-    // Find clicked tile (reverse for z-order)
-    for (let i = tiles.length - 1; i >= 0; i--) {
-      const tile = tiles[i]
-      const relX = x - tile.x + MARGIN
-      const relY = y - tile.y + MARGIN
-
-      if (relX >= 0 && relX <= TILE_SIZE + MARGIN * 2 && relY >= 0 && relY <= TILE_SIZE + MARGIN * 2) {
-        tile.ctx.save()
-        tile.ctx.translate(MARGIN, MARGIN)
-        const hit = tile.ctx.isPointInPath(tile.path, relX - MARGIN, relY - MARGIN)
-        tile.ctx.restore()
-
-        if (hit) {
-          dragState.dragging = true
-          dragState.selectedGroupId = tile.groupId
-          dragState.lastX = x
-          dragState.lastY = y
-          render()
-          return
-        }
-      }
-    }
-  }
-
-  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
-    const dragState = dragStateRef.current
-    if (!dragState.dragging) return
-
-    e.preventDefault()
-    e.stopPropagation()
-
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const clientX = 'touches' in e ? e.touches[0]?.clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0]?.clientY : e.clientY
-    
-    if (clientX === undefined || clientY === undefined) return
-
-    const x = clientX - rect.left
-    const y = clientY - rect.top
-
-    const dx = x - dragState.lastX
-    const dy = y - dragState.lastY
-
-    // Move all tiles in selected group
-    const tiles = tilesRef.current
-    for (const tile of tiles) {
-      if (tile.groupId === dragState.selectedGroupId) {
-        tile.x += dx
-        tile.y += dy
-      }
-    }
-
-    dragState.lastX = x
-    dragState.lastY = y
-    
-    // Render smoothly with RAF
-    if (!animFrameRef.current) {
-      animFrameRef.current = requestAnimationFrame(() => {
-        render()
-        animFrameRef.current = undefined
+    tool.onMouseDown = (event: any) => {
+      const hitResult = scope.project.hitTest(event.point, {
+        fill: true,
+        tolerance: 5
       })
+
+      if (hitResult?.item?.parent) {
+        let tile = hitResult.item.parent
+        // Find the actual tile group
+        while (tile && !tile.gridPosition) {
+          tile = tile.parent
+        }
+        
+        if (tile) {
+          game.selectedTile = tile
+          game.dragging = true
+          tile.bringToFront()
+        }
+      }
     }
-  }
 
-  const handlePointerUp = (e: React.MouseEvent | React.TouchEvent) => {
-    const dragState = dragStateRef.current
-    if (!dragState.dragging) return
+    tool.onMouseDrag = (event: any) => {
+      if (game.selectedTile && game.dragging) {
+        // Move all pieces in the group
+        game.selectedTile.pieceGroup.forEach((piece: any) => {
+          piece.position = piece.position.add(event.delta)
+        })
+      }
+    }
 
-    e.preventDefault()
-    e.stopPropagation()
+    tool.onMouseUp = () => {
+      if (game.selectedTile && game.dragging) {
+        tryConnect()
+        game.selectedTile = null
+        game.dragging = false
+      }
+    }
 
-    dragState.dragging = false
-    const selectedGroupId = dragState.selectedGroupId
-    dragState.selectedGroupId = null
+    // Snap and connect pieces
+    const tryConnect = () => {
+      if (!game.selectedTile) return
 
-    if (selectedGroupId === null) return
+      const snapThreshold = tileWidth / 9
+      const toConnect: any[] = []
 
-    // Try to snap - more forgiving threshold
-    const tiles = tilesRef.current
-    const snapThreshold = 30
-    const selectedTiles = tiles.filter(t => t.groupId === selectedGroupId)
+      for (const tile of game.selectedTile.pieceGroup) {
+        const neighbors = [
+          { dx: 1, dy: 0 },
+          { dx: -1, dy: 0 },
+          { dx: 0, dy: 1 },
+          { dx: 0, dy: -1 }
+        ]
 
-    for (const tile of selectedTiles) {
-      const neighbors = [
-        { dx: 1, dy: 0 },
-        { dx: -1, dy: 0 },
-        { dx: 0, dy: 1 },
-        { dx: 0, dy: -1 }
-      ]
+        for (const { dx, dy } of neighbors) {
+          const neighbor = game.tiles.find((t: any) => 
+            t.gridPosition.x === tile.gridPosition.x + dx &&
+            t.gridPosition.y === tile.gridPosition.y + dy
+          )
 
-      for (const { dx, dy } of neighbors) {
-        const neighbor = tiles.find(t => t.gridX === tile.gridX + dx && t.gridY === tile.gridY + dy)
-        if (!neighbor || neighbor.groupId === tile.groupId) continue
+          if (!neighbor || tile.pieceGroup.includes(neighbor)) continue
 
-        const expectedX = tile.x + dx * TILE_SIZE
-        const expectedY = tile.y + dy * TILE_SIZE
-        const dist = Math.hypot(neighbor.x - expectedX, neighbor.y - expectedY)
+          const expectedPos = tile.position.add([dx * tileWidth, dy * tileWidth])
+          const dist = neighbor.position.getDistance(expectedPos)
 
-        if (dist < snapThreshold) {
-          // Snap neighbor to exact position relative to tile
-          neighbor.x = expectedX
-          neighbor.y = expectedY
-
-          // Merge groups - update all tiles from neighbor's old group
-          const oldGroupId = neighbor.groupId
-          const newGroupId = tile.groupId
-
-          for (const t of tiles) {
-            if (t.groupId === oldGroupId) {
-              t.groupId = newGroupId
-              // Also adjust position to maintain relative positioning
-              const relGridX = t.gridX - neighbor.gridX
-              const relGridY = t.gridY - neighbor.gridY
-              t.x = neighbor.x + relGridX * TILE_SIZE
-              t.y = neighbor.y + relGridY * TILE_SIZE
-            }
+          if (dist < snapThreshold && !toConnect.includes(neighbor)) {
+            toConnect.push(neighbor)
           }
         }
       }
+
+      if (toConnect.length > 0) {
+        // Merge groups
+        const newGroup = [...game.selectedTile.pieceGroup]
+        for (const tile of toConnect) {
+          newGroup.push(...tile.pieceGroup)
+        }
+
+        // Update all pieces to reference the new group
+        for (const tile of newGroup) {
+          tile.pieceGroup = newGroup
+        }
+
+        // Snap to grid
+        gatherGroup(game.selectedTile)
+
+        // Check completion
+        if (newGroup.length === game.tiles.length) {
+          setComplete(true)
+          game.complete = true
+        }
+      }
     }
 
-    // Check completion
-    if (tiles.every(t => t.groupId === tiles[0].groupId)) {
-      setComplete(true)
+    // Align group pieces to grid
+    const gatherGroup = (tile: any) => {
+      const anchor = tile
+      const anchorGridPos = anchor.gridPosition
+
+      for (const piece of tile.pieceGroup) {
+        if (piece === anchor) continue
+        
+        const offset = piece.gridPosition.subtract(anchorGridPos)
+        piece.position = anchor.position.add(offset.multiply(tileWidth))
+      }
     }
 
-    render()
+    gameRef.current = game
+    paper.view.draw()
   }
 
   const scatterPieces = () => {
-    const tiles = tilesRef.current
-    const groups = new Map<number, Tile[]>()
+    if (!gameRef.current) return
     
-    // Group tiles by groupId
-    for (const tile of tiles) {
-      if (!groups.has(tile.groupId)) {
-        groups.set(tile.groupId, [])
+    const game = gameRef.current
+    const groups = new Map<any, any[]>()
+
+    // Group tiles
+    for (const tile of game.tiles) {
+      const group = tile.pieceGroup
+      if (!groups.has(group)) {
+        groups.set(group, group)
       }
-      groups.get(tile.groupId)!.push(tile)
     }
 
-    // Scatter each group as a unit
-    groups.forEach((groupTiles, groupId) => {
-      // Find top-left tile in group (anchor)
-      const minX = Math.min(...groupTiles.map(t => t.gridX))
-      const minY = Math.min(...groupTiles.map(t => t.gridY))
-      const anchor = groupTiles.find(t => t.gridX === minX && t.gridY === minY)!
+    // Scatter each group
+    groups.forEach((group) => {
+      const anchor = group[0]
+      const playArea = game.playArea.bounds
       
-      // New random position for anchor
-      const newX = 600 + Math.random() * 850
-      const newY = 100 + Math.random() * 750
-      const deltaX = newX - anchor.x
-      const deltaY = newY - anchor.y
-      
-      // Move entire group together
-      for (const tile of groupTiles) {
-        tile.x += deltaX
-        tile.y += deltaY
+      const newX = playArea.left + Math.random() * playArea.width
+      const newY = playArea.top + Math.random() * playArea.height
+      const delta = new window.paper.Point(newX, newY).subtract(anchor.position)
+
+      for (const piece of group) {
+        piece.position = piece.position.add(delta)
       }
     })
-    
-    render()
+
+    window.paper.view.draw()
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -411,7 +400,8 @@ export default function JigsawPage() {
       const img = new Image()
       img.onload = () => {
         setImage(img)
-        initPuzzle(img)
+        setComplete(false)
+        setTimeout(() => initPuzzle(img), 100)
       }
       img.src = URL.createObjectURL(file)
     }
@@ -422,120 +412,117 @@ export default function JigsawPage() {
     img.crossOrigin = 'anonymous'
     img.onload = () => {
       setImage(img)
-      initPuzzle(img)
+      setComplete(false)
+      setTimeout(() => initPuzzle(img), 100)
     }
     img.src = url
   }
 
-  // Render on demand
   useEffect(() => {
-    render()
-  }, [complete])
+    if (paperLoaded && image) {
+      initPuzzle(image)
+    }
+  }, [paperLoaded, numCols, numRows])
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
+    <>
+      <Script 
+        src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
+        onLoad={() => setPaperLoaded(true)}
+      />
       
-      <div className="fixed inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, #a855f7, transparent)' }} />
-      </div>
-
-      <div className="relative z-10 max-w-7xl w-full">
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
         
-        <div className="text-center mb-6">
-          <h1 className="text-5xl md:text-6xl font-bold mb-2" style={{ fontFamily: 'Cinzel, serif', background: 'linear-gradient(135deg, #a855f7, #6d28d9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.1em' }}>
-            JIGSAW PUZZLE
-          </h1>
-          <p className="text-sm tracking-widest uppercase opacity-70 text-purple-300">{numCols}x{numRows} Pieces</p>
+        <div className="fixed inset-0 pointer-events-none opacity-20">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, #a855f7, transparent)' }} />
         </div>
 
-        {!image ? (
-          <div className="max-w-2xl mx-auto space-y-6">
-            <label className="block p-12 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:border-purple-400 hover:bg-purple-500/5" style={{ borderColor: 'rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.05)' }}>
-              <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              <div className="text-center">
-                <Upload size={48} className="mx-auto mb-4 text-purple-400" />
-                <p className="text-xl font-semibold mb-2 text-white">Upload Your Own Image</p>
-                <p className="text-sm text-gray-400">Click to select a photo</p>
-              </div>
-            </label>
-
-            <div>
-              <p className="text-center text-sm text-purple-300 mb-3">Or try a sample:</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {SAMPLE_IMAGES.map((sample, i) => (
-                  <button key={i} onClick={() => loadSampleImage(sample.url)} className="group relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-purple-400 transition-all">
-                    <img src={sample.url} alt={sample.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <p className="text-white text-xs font-semibold">{sample.name}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)' }}>
-              <label className="block text-sm text-purple-300 mb-2">Difficulty:</label>
-              <select value={`${numCols}x${numRows}`} onChange={e => {
-                const [cols, rows] = e.target.value.split('x').map(Number)
-                setNumCols(cols)
-                setNumRows(rows)
-              }} className="w-full p-2 rounded bg-purple-900/30 border border-purple-500/50 text-white">
-                <option value="3x2">Easy (6 pieces)</option>
-                <option value="4x3">Medium (12 pieces)</option>
-                <option value="6x4">Hard (24 pieces)</option>
-                <option value="8x6">Expert (48 pieces)</option>
-              </select>
-            </div>
+        <div className="relative z-10 max-w-7xl w-full">
+          
+          <div className="text-center mb-6">
+            <h1 className="text-5xl md:text-6xl font-bold mb-2" style={{ fontFamily: 'Cinzel, serif', background: 'linear-gradient(135deg, #a855f7, #6d28d9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.1em' }}>
+              JIGSAW PUZZLE
+            </h1>
+            <p className="text-sm tracking-widest uppercase opacity-70 text-purple-300">{numCols}x{numRows} Pieces</p>
           </div>
-        ) : (
-          <div>
-            <div className="flex justify-center gap-3 mb-4 flex-wrap">
-              <button onClick={() => image && initPuzzle(image)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <RotateCcw size={16} /> Reset
-              </button>
-              <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <Sparkles size={16} /> Scatter
-              </button>
-              <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
-                <Upload size={16} /> New Game
-              </button>
-            </div>
 
-            <div className="mx-auto overflow-auto rounded-xl relative" style={{ maxWidth: '100%', maxHeight: '70vh', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch' }}>
-              <canvas
-                ref={canvasRef}
-                onMouseDown={handlePointerDown}
-                onMouseMove={handlePointerMove}
-                onMouseUp={handlePointerUp}
-                onMouseLeave={handlePointerUp}
-                onTouchStart={handlePointerDown}
-                onTouchMove={handlePointerMove}
-                onTouchEnd={handlePointerUp}
-                onTouchCancel={handlePointerUp}
-                style={{ 
-                  display: 'block', 
-                  cursor: dragStateRef.current?.dragging ? 'grabbing' : 'grab', 
-                  touchAction: 'none',
-                  userSelect: 'none',
-                  WebkitUserSelect: 'none'
-                }}
-              />
-            </div>
-
-            {complete && (
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-6">
-                <div className="inline-flex items-center gap-3 px-8 py-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.2)', border: '2px solid rgba(168,85,247,0.5)' }}>
-                  <CheckCircle size={32} className="text-purple-400" />
-                  <div className="text-left">
-                    <p className="text-2xl font-bold text-white">Puzzle Complete!</p>
-                    <p className="text-sm text-purple-300">All pieces connected</p>
-                  </div>
+          {!image ? (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <label className="block p-12 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:border-purple-400 hover:bg-purple-500/5" style={{ borderColor: 'rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.05)' }}>
+                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                <div className="text-center">
+                  <Upload size={48} className="mx-auto mb-4 text-purple-400" />
+                  <p className="text-xl font-semibold mb-2 text-white">Upload Your Own Image</p>
+                  <p className="text-sm text-gray-400">Click to select a photo</p>
                 </div>
-              </motion.div>
-            )}
-          </div>
-        )}
+              </label>
+
+              <div>
+                <p className="text-center text-sm text-purple-300 mb-3">Or try a sample:</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {SAMPLE_IMAGES.map((sample, i) => (
+                    <button key={i} onClick={() => loadSampleImage(sample.url)} className="group relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-purple-400 transition-all">
+                      <img src={sample.url} alt={sample.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <p className="text-white text-xs font-semibold">{sample.name}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)' }}>
+                <label className="block text-sm text-purple-300 mb-2">Difficulty:</label>
+                <select value={`${numCols}x${numRows}`} onChange={e => {
+                  const [cols, rows] = e.target.value.split('x').map(Number)
+                  setNumCols(cols)
+                  setNumRows(rows)
+                }} className="w-full p-2 rounded bg-purple-900/30 border border-purple-500/50 text-white">
+                  <option value="3x2">Easy (6 pieces)</option>
+                  <option value="4x3">Medium (12 pieces)</option>
+                  <option value="6x4">Hard (24 pieces)</option>
+                  <option value="8x6">Expert (48 pieces)</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex justify-center gap-3 mb-4 flex-wrap">
+                <button onClick={() => image && initPuzzle(image)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <RotateCcw size={16} /> Reset
+                </button>
+                <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <Sparkles size={16} /> Scatter
+                </button>
+                <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <Upload size={16} /> New Game
+                </button>
+              </div>
+
+              <div className="mx-auto rounded-xl" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
+                <canvas
+                  ref={canvasRef}
+                  width={1200}
+                  height={800}
+                  style={{ display: 'block', width: '100%', height: 'auto', touchAction: 'none' }}
+                />
+              </div>
+
+              {complete && (
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-6">
+                  <div className="inline-flex items-center gap-3 px-8 py-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.2)', border: '2px solid rgba(168,85,247,0.5)' }}>
+                    <CheckCircle size={32} className="text-purple-400" />
+                    <div className="text-left">
+                      <p className="text-2xl font-bold text-white">Puzzle Complete!</p>
+                      <p className="text-sm text-purple-300">All pieces connected</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
