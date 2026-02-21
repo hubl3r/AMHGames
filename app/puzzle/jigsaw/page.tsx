@@ -383,7 +383,7 @@ export default function JigsawPage() {
     }
 
     // Scatter each group as a unit
-    for (const [groupId, groupTiles] of groups) {
+    groups.forEach((groupTiles, groupId) => {
       // Find top-left tile in group (anchor)
       const minX = Math.min(...groupTiles.map(t => t.gridX))
       const minY = Math.min(...groupTiles.map(t => t.gridY))
@@ -400,7 +400,7 @@ export default function JigsawPage() {
         tile.x += deltaX
         tile.y += deltaY
       }
-    }
+    })
     
     render()
   }
