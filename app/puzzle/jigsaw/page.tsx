@@ -336,7 +336,8 @@ export default function JigsawPage() {
 
           if (dist < snapThreshold) {
             // Merge groups
-            const newGroup = [...new Set([...tile.group, ...neighborTile.group])]
+            const combined = [...tile.group, ...neighborTile.group]
+            const newGroup = Array.from(new Set(combined))
             newGroup.forEach(t => (t.group = newGroup))
             
             // Snap to grid
