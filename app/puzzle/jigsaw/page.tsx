@@ -34,12 +34,17 @@ export default function JigsawPage() {
     const paper = window.paper
     const canvas = canvasRef.current
 
-    if (gameRef.current?.scope) gameRef.current.scope.project.clear()
+    // Clear previous puzzle
+    if (gameRef.current?.scope) {
+      gameRef.current.scope.project.clear()
+    }
 
+    // Setup Paper.js
     paper.setup(canvas)
     paper.view.viewSize = new paper.Size(1200, 800)
     const scope = paper.project
 
+    // Create puzzle image
     const raster = new paper.Raster(img)
     raster.position = new paper.Point(300, 250)
     raster.visible = false
@@ -49,6 +54,7 @@ export default function JigsawPage() {
     const puzzleHeight = tileWidth * numRows
     raster.size = new paper.Size(puzzleWidth, puzzleHeight)
 
+    // Play area (non-interactive guide)
     const playArea = new paper.Path.Rectangle({
       center: raster.position,
       size: [puzzleWidth + 20, puzzleHeight + 20],
@@ -62,10 +68,10 @@ export default function JigsawPage() {
     const game: any = {
       scope,
       tiles: [] as any[],
-      selectedTile: null as any,
+      selectedTile: null,
       dragging: false,
       panning: false,
-      lastPoint: null as any,
+      lastPoint: null,
       tileWidth,
       numCols,
       numRows,
@@ -75,8 +81,10 @@ export default function JigsawPage() {
       zIndex: 0
     }
 
+    // Tab curve
     const tabCurve = [0,0,35,15,37,5,37,5,40,0,38,-5,38,-5,20,-20,50,-20,50,-20,80,-20,62,-5,62,-5,60,0,63,5,63,5,65,15,100,0]
 
+    // Generate tab pattern
     const tabPattern: number[][] = []
     for (let y = 0; y < numRows; y++) {
       for (let x = 0; x < numCols; x++) {
@@ -88,97 +96,158 @@ export default function JigsawPage() {
       }
     }
 
+    // Create mask path
     const createMask = (gridX: number, gridY: number) => {
       const scale = tileWidth / 100
       const pattern = tabPattern[gridY * numCols + gridX]
       const path = new paper.Path()
       path.moveTo([0, 0])
 
+      // Top edge
       if (gridY > 0 && pattern[0] !== 0) {
         const dir = pattern[0]
         for (let i = 0; i < tabCurve.length; i += 6) {
-          path.cubicCurveTo([tabCurve[i]*scale, dir*tabCurve[i+1]*scale], [tabCurve[i+2]*scale, dir*tabCurve[i+3]*scale], [tabCurve[i+4]*scale, dir*tabCurve[i+5]*scale])
+          path.cubicCurveTo(
+            [tabCurve[i]*scale, dir*tabCurve[i+1]*scale],
+            [tabCurve[i+2]*scale, dir*tabCurve[i+3]*scale],
+            [tabCurve[i+4]*scale, dir*tabCurve[i+5]*scale]
+          )
         }
-      } else path.lineTo([tileWidth, 0])
+      } else {
+        path.lineTo([tileWidth, 0])
+      }
 
-      if (gridX < numCols-1 && pattern[1] !== 0) {
+      // Right edge
+      if (gridX < numCols - 1 && pattern[1] !== 0) {
         const dir = pattern[1]
         for (let i = 0; i < tabCurve.length; i += 6) {
-          path.cubicCurveTo([tileWidth - dir*tabCurve[i+1]*scale, tabCurve[i]*scale], [tileWidth - dir*tabCurve[i+3]*scale, tabCurve[i+2]*scale], [tileWidth - dir*tabCurve[i+5]*scale, tabCurve[i+4]*scale])
+          path.cubicCurveTo(
+            [tileWidth - dir*tabCurve[i+1]*scale, tabCurve[i]*scale],
+            [tileWidth - dir*tabCurve[i+3]*scale, tabCurve[i+2]*scale],
+            [tileWidth - dir*tabCurve[i+5]*scale, tabCurve[i+4]*scale]
+          )
         }
-      } else path.lineTo([tileWidth, tileWidth])
+      } else {
+        path.lineTo([tileWidth, tileWidth])
+      }
 
-      if (gridY < numRows-1 && pattern[2] !== 0) {
+      // Bottom edge
+      if (gridY < numRows - 1 && pattern[2] !== 0) {
         const dir = pattern[2]
         for (let i = 0; i < tabCurve.length; i += 6) {
-          path.cubicCurveTo([tileWidth - tabCurve[i]*scale, tileWidth - dir*tabCurve[i+1]*scale], [tileWidth - tabCurve[i+2]*scale, tileWidth - dir*tabCurve[i+3]*scale], [tileWidth - tabCurve[i+4]*scale, tileWidth - dir*tabCurve[i+5]*scale])
+          path.cubicCurveTo(
+            [tileWidth - tabCurve[i]*scale, tileWidth - dir*tabCurve[i+1]*scale],
+            [tileWidth - tabCurve[i+2]*scale, tileWidth - dir*tabCurve[i+3]*scale],
+            [tileWidth - tabCurve[i+4]*scale, tileWidth - dir*tabCurve[i+5]*scale]
+          )
         }
-      } else path.lineTo([0, tileWidth])
+      } else {
+        path.lineTo([0, tileWidth])
+      }
 
+      // Left edge
       if (gridX > 0 && pattern[3] !== 0) {
         const dir = pattern[3]
         for (let i = 0; i < tabCurve.length; i += 6) {
-          path.cubicCurveTo([dir*tabCurve[i+1]*scale, tileWidth - tabCurve[i]*scale], [dir*tabCurve[i+3]*scale, tileWidth - tabCurve[i+2]*scale], [dir*tabCurve[i+5]*scale, tileWidth - tabCurve[i+4]*scale])
+          path.cubicCurveTo(
+            [dir*tabCurve[i+1]*scale, tileWidth - tabCurve[i]*scale],
+            [dir*tabCurve[i+3]*scale, tileWidth - tabCurve[i+2]*scale],
+            [dir*tabCurve[i+5]*scale, tileWidth - tabCurve[i+4]*scale]
+          )
         }
-      } else path.lineTo([0, 0])
+      } else {
+        path.lineTo([0, 0])
+      }
 
       path.closePath()
-      path.fillColor = new paper.Color(0, 0, 0, 0.001)
+      path.fillColor = new paper.Color(0, 0, 0, 0.01) // Hint of alpha for hit detection
       return path
     }
 
+    // Create all pieces with UNIFIED COORDINATE SYSTEM
     for (let y = 0; y < numRows; y++) {
       for (let x = 0; x < numCols; x++) {
         const mask = createMask(x, y)
-        const pieceRaster = raster.getSubRaster(new paper.Rectangle(x*tileWidth-20, y*tileWidth-20, tileWidth+40, tileWidth+40))
-        pieceRaster.position = new paper.Point(tileWidth/2, tileWidth/2)
+        
+        // Get piece image (with margin for tabs)
+        const margin = 20
+        const pieceRaster = raster.getSubRaster(
+          new paper.Rectangle(
+            x * tileWidth - margin,
+            y * tileWidth - margin,
+            tileWidth + margin * 2,
+            tileWidth + margin * 2
+          )
+        )
+        // Position raster at center of mask bounds
+        pieceRaster.position = new paper.Point(tileWidth / 2, tileWidth / 2)
 
         const outline = mask.clone()
         outline.strokeColor = new paper.Color('rgba(255,255,255,0.3)')
         outline.strokeWidth = 1
+        outline.fillColor = null
 
+        // Create group
         const group = new paper.Group([mask, pieceRaster, outline])
         group.clipped = true
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup = [group]
-        group.data.imageCenterOffset = new paper.Point(tileWidth/2, tileWidth/2)
+
+        // CRITICAL: Set group.position to the LOGICAL CENTER
+        // This is (gridX + 0.5) * tileWidth, (gridY + 0.5) * tileWidth in board space
+        const logicalCenter = raster.position
+          .subtract(new paper.Point(puzzleWidth / 2, puzzleHeight / 2))
+          .add(new paper.Point((x + 0.5) * tileWidth, (y + 0.5) * tileWidth))
+        
+        group.position = logicalCenter
 
         game.tiles.push(group)
       }
     }
 
-    const shufflePerimeter = () => {
-      const boardRight = raster.position.x + puzzleWidth/2 + 100
-      const boardTop = raster.position.y - puzzleHeight/2
+    // Shuffle pieces to the right
+    const shufflePieces = () => {
+      const boardRight = raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = raster.position.y - puzzleHeight / 2
       const rows = Math.ceil(Math.sqrt(game.tiles.length))
       const cols = Math.ceil(game.tiles.length / rows)
 
       game.tiles.forEach((tile: any, i: number) => {
         const row = Math.floor(i / cols)
         const col = i % cols
-        const x = boardRight + col * (tileWidth + 30) + Math.random()*20
-        const y = boardTop + row * (tileWidth + 30) + Math.random()*20
+        
+        // Logical center position
+        const x = boardRight + (col + 0.5) * (tileWidth + 30)
+        const y = boardTop + (row + 0.5) * (tileWidth + 30)
+        
         tile.position = new paper.Point(x, y)
       })
     }
-    shufflePerimeter()
+    shufflePieces()
 
+    // Mouse handlers
     const tool = new paper.Tool()
 
     tool.onMouseDown = (event: any) => {
       if (game.complete) return
 
-      const hitResult = scope.hitTest(event.point, { fill: true, stroke: true, tolerance: 25 })
+      const hitResult = scope.hitTest(event.point, { 
+        fill: true, 
+        tolerance: 15
+      })
 
       if (hitResult?.item) {
         let tile = hitResult.item
-        while (tile && !tile.gridPosition && tile.parent) tile = tile.parent
+        while (tile && !tile.gridPosition && tile.parent) {
+          tile = tile.parent
+        }
 
-        if (tile && tile.gridPosition) {
+        if (tile?.gridPosition) {
           game.selectedTile = tile
           game.dragging = true
           game.lastPoint = event.point
 
+          // Bring to front
           game.zIndex++
           tile.pieceGroup.forEach((p: any) => {
             p.bringToFront()
@@ -188,19 +257,23 @@ export default function JigsawPage() {
         }
       }
 
+      // Start panning if not clicking a piece
       game.panning = true
       game.lastPoint = event.point
     }
 
     tool.onMouseDrag = (event: any) => {
       if (game.dragging && game.selectedTile) {
+        // Move entire group
         const delta = event.point.subtract(game.lastPoint)
         game.selectedTile.pieceGroup.forEach((piece: any) => {
           piece.position = piece.position.add(delta)
         })
         game.lastPoint = event.point
         paper.view.draw()
+        
       } else if (game.panning) {
+        // Pan view
         const delta = event.point.subtract(game.lastPoint)
         paper.view.translate(delta)
         game.lastPoint = event.point
@@ -208,101 +281,150 @@ export default function JigsawPage() {
     }
 
     tool.onMouseUp = () => {
-      if (game.dragging && game.selectedTile) tryConnect()
+      if (game.dragging && game.selectedTile) {
+        tryConnect()
+        game.selectedTile = null
+      }
       game.dragging = false
       game.panning = false
       game.lastPoint = null
     }
 
+    // Try to connect pieces
     const tryConnect = () => {
       if (!game.selectedTile) return
+
       const snapThreshold = tileWidth / 8
       const toConnect: any[] = []
 
       for (const tile of game.selectedTile.pieceGroup) {
-        const neighbors = [{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}]
-        for (const {dx,dy} of neighbors) {
-          const neighbor = game.tiles.find((t:any) => 
+        const neighbors = [
+          { dx: 1, dy: 0 },
+          { dx: -1, dy: 0 },
+          { dx: 0, dy: 1 },
+          { dx: 0, dy: -1 }
+        ]
+
+        for (const { dx, dy } of neighbors) {
+          const neighbor = game.tiles.find((t: any) =>
             t.gridPosition.x === tile.gridPosition.x + dx &&
             t.gridPosition.y === tile.gridPosition.y + dy
           )
+
           if (!neighbor || tile.pieceGroup.includes(neighbor)) continue
 
-          const expected = tile.position.add(new paper.Point(dx * tileWidth, dy * tileWidth))
-          if (neighbor.position.getDistance(expected) < snapThreshold) toConnect.push(neighbor)
+          // Expected position = tile's logical center + grid offset
+          const expectedPos = tile.position.add(
+            new paper.Point(dx * tileWidth, dy * tileWidth)
+          )
+
+          const dist = neighbor.position.getDistance(expectedPos)
+
+          if (dist < snapThreshold && !toConnect.includes(neighbor)) {
+            toConnect.push(neighbor)
+          }
         }
       }
 
       if (toConnect.length > 0) {
+        // Merge groups
         const newGroup = [...game.selectedTile.pieceGroup]
         toConnect.forEach(t => newGroup.push(...t.pieceGroup))
-        newGroup.forEach((p: any) => p.pieceGroup = newGroup)
+        
+        // Deduplicate
+        const uniqueGroup = Array.from(new Set(newGroup))
+        uniqueGroup.forEach((p: any) => (p.pieceGroup = uniqueGroup))
 
+        // Snap pieces to grid alignment
         gatherGroup(game.selectedTile)
 
-        if (newGroup.length === game.tiles.length) {
+        // Check completion
+        if (uniqueGroup.length === game.tiles.length) {
           setComplete(true)
           game.complete = true
         }
       }
     }
 
+    // Align group to grid using UNIFIED coordinates
     const gatherGroup = (anchor: any) => {
-      const anchorCenter = anchor.position.add(anchor.data.imageCenterOffset)
+      const anchorCenter = anchor.position // Already the logical center!
+
       for (const piece of anchor.pieceGroup) {
         if (piece === anchor) continue
-        const offset = piece.gridPosition.subtract(anchor.gridPosition).multiply(tileWidth)
-        const targetCenter = anchorCenter.add(offset)
-        piece.position = targetCenter.subtract(piece.data.imageCenterOffset)
+
+        // Calculate expected position based on grid offset
+        const gridOffset = piece.gridPosition.subtract(anchor.gridPosition)
+        const expectedCenter = anchorCenter.add(gridOffset.multiply(tileWidth))
+
+        // Set position directly (it IS the logical center)
+        piece.position = expectedCenter
       }
+
       paper.view.draw()
     }
 
+    // Scatter function
     game.scatter = () => {
       const groups = new Map<any, any[]>()
       game.tiles.forEach((t: any) => {
-        const key = t.pieceGroup
-        if (!groups.has(key)) groups.set(key, key)
+        if (!groups.has(t.pieceGroup)) {
+          groups.set(t.pieceGroup, t.pieceGroup)
+        }
       })
 
-      const boardRight = game.raster.position.x + puzzleWidth / 2 + 100
-      const boardTop = game.raster.position.y - puzzleHeight / 2
+      const boardRight = raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = raster.position.y - puzzleHeight / 2
       let idx = 0
 
       groups.forEach((group: any[]) => {
         const anchor = group[0]
-        const spreadX = boardRight + (idx % 6) * (tileWidth * 2 + 60)
-        const spreadY = boardTop + Math.floor(idx / 6) * (tileWidth * 2 + 60)
+        const col = idx % 6
+        const row = Math.floor(idx / 6)
+        
+        const newCenter = new paper.Point(
+          boardRight + (col + 0.5) * (tileWidth * 2 + 60),
+          boardTop + (row + 0.5) * (tileWidth * 2 + 60)
+        )
 
-        const delta = new paper.Point(spreadX, spreadY).subtract(anchor.position)
+        const delta = newCenter.subtract(anchor.position)
 
         group.forEach((piece: any) => {
           piece.position = piece.position.add(delta)
         })
+
         idx++
       })
+
       paper.view.draw()
     }
 
+    // Wheel zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault()
+      const scale = e.deltaY > 0 ? 0.9 : 1.1
+      paper.view.scale(scale)
+    }, { passive: false })
+
     gameRef.current = game
-
-    const maxDim = Math.max(puzzleWidth + 600, puzzleHeight + 400)
-    const fitZoom = Math.min(1, 1100 / maxDim)
-    paper.view.zoom = fitZoom
-    paper.view.center = new paper.Point(600, 400)
-
     paper.view.draw()
-  } // ←←← THIS CLOSES initPuzzle
+  }
 
   const scatterPieces = () => {
-    gameRef.current?.scatter?.()
+    if (gameRef.current?.scatter) {
+      gameRef.current.scatter()
+    }
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       const img = new Image()
-      img.onload = () => { setImage(img); setComplete(false); setTimeout(() => initPuzzle(img), 50) }
+      img.onload = () => {
+        setImage(img)
+        setComplete(false)
+        setTimeout(() => initPuzzle(img), 100)
+      }
       img.src = URL.createObjectURL(file)
     }
   }
@@ -310,24 +432,35 @@ export default function JigsawPage() {
   const loadSampleImage = (url: string) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
-    img.onload = () => { setImage(img); setComplete(false); setTimeout(() => initPuzzle(img), 50) }
+    img.onload = () => {
+      setImage(img)
+      setComplete(false)
+      setTimeout(() => initPuzzle(img), 100)
+    }
     img.src = url
   }
 
   useEffect(() => {
-    if (paperLoaded && image) initPuzzle(image)
+    if (paperLoaded && image) {
+      initPuzzle(image)
+    }
   }, [paperLoaded, numCols, numRows])
 
   return (
     <>
-      <Script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js" onLoad={() => setPaperLoaded(true)} />
+      <Script 
+        src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
+        onLoad={() => setPaperLoaded(true)}
+      />
       
       <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
+        
         <div className="fixed inset-0 pointer-events-none opacity-20">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, #a855f7, transparent)' }} />
         </div>
 
         <div className="relative z-10 max-w-7xl w-full">
+          
           <div className="text-center mb-6">
             <h1 className="text-5xl md:text-6xl font-bold mb-2" style={{ fontFamily: 'Cinzel, serif', background: 'linear-gradient(135deg, #a855f7, #6d28d9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.1em' }}>
               JIGSAW PUZZLE
@@ -389,14 +522,14 @@ export default function JigsawPage() {
               </div>
 
               <div className="mb-3 text-center text-sm text-purple-300">
-                Drag pieces • Drag empty space to pan • Scroll/pinch to zoom • Pieces snap &amp; stick together
+                <p>💡 Drag pieces to move • Drag background to pan • Scroll to zoom</p>
               </div>
 
               <div className="mx-auto rounded-xl" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
                 <canvas
                   ref={canvasRef}
                   id="jigsaw-canvas"
-                  style={{ display: 'block', width: '100%', height: 'auto', touchAction: 'none' }}
+                  style={{ display: 'block', width: '100%', height: 'auto' }}
                 />
               </div>
 
