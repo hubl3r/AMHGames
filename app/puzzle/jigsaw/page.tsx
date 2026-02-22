@@ -36,7 +36,7 @@ export default function JigsawPage() {
 
     // Clear previous puzzle
     if (gameRef.current?.scope?.project) {
-      gameRef.current.scope.project.clear()
+      gameRef.current.scope.clear()
     }
 
     // Setup Paper.js with responsive sizing
@@ -700,7 +700,7 @@ export default function JigsawPage() {
                   setComplete(false)
                   setImage(null)
                   if (gameRef.current?.scope?.project) {
-                    gameRef.current.scope.project.clear()
+                    gameRef.current.scope.clear()
                   }
                 }} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                   <Upload size={16} /> New Game
