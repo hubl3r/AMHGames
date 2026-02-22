@@ -35,26 +35,18 @@ export default function JigsawPage() {
     const canvas = canvasRef.current
 
     // Clear previous puzzle
-    if (gameRef.current?.scope?.project) {
+    if (gameRef.current?.scope) {
       gameRef.current.scope.project.clear()
     }
 
-    // Setup Paper.js with responsive sizing
+    // Setup Paper.js
     paper.setup(canvas)
-    
-    // Make canvas responsive to viewport
-    const isMobile = window.innerWidth < 768
-    const canvasWidth = isMobile ? window.innerWidth - 32 : Math.min(1400, window.innerWidth - 100)
-    const canvasHeight = isMobile ? window.innerHeight - 200 : 900
-    
-    paper.view.viewSize = new paper.Size(canvasWidth, canvasHeight)
+    paper.view.viewSize = new paper.Size(1200, 800)
     const scope = paper.project
 
-    // Create puzzle image - position based on screen size
+    // Create puzzle image
     const raster = new paper.Raster(img)
-    const boardX = isMobile ? 80 : 200
-    const boardY = isMobile ? canvasHeight * 0.35 : canvasHeight * 0.4
-    raster.position = new paper.Point(boardX, boardY)
+    raster.position = new paper.Point(300, 250)
     raster.visible = false
 
     const tileWidth = 100
@@ -215,19 +207,10 @@ export default function JigsawPage() {
         const group = new paper.Group([mask, pieceRaster, outline])
         group.clipped = true
         group.gridPosition = new paper.Point(x, y)
-        
-        // CRITICAL: Each piece must have its OWN pieceGroup array
-        group.pieceGroup = [group]  // New array for each piece
+        group.pieceGroup = [group]
         
         // Store offsets from mask (JigsawGalaxy method)
         group.offsets = mask.offsets
-        
-        // IMPORTANT: Store reference to parent group on all children
-        // This makes hit detection reliable even with clipped groups
-        group.data.isJigsawTile = true
-        mask.data.parentTile = group
-        pieceRaster.data.parentTile = group
-        outline.data.parentTile = group
 
         game.tiles.push(group)
       }
@@ -265,26 +248,24 @@ export default function JigsawPage() {
     // Initialize all pieces at their natural positions first
     game.tiles.forEach((tile: any) => setTileNatural(tile))
 
-    // Then scatter pieces randomly - mobile optimized
+    // Then shuffle pieces to the right
     const shufflePieces = () => {
-      const isMobile = window.innerWidth < 768
-      
-      game.tiles.forEach((tile: any) => {
-        if (isMobile) {
-          // Mobile: scatter to right and below
-          const targetCenter = new paper.Point(
-            boardX + puzzleWidth / 2 + 50 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 100),
-            Math.random() * canvasHeight
-          )
-          setTileGridCenter(tile, targetCenter)
-        } else {
-          // Desktop: wide scatter to the right
-          const targetCenter = new paper.Point(
-            boardX + puzzleWidth / 2 + 80 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 150),
-            50 + Math.random() * (canvasHeight - 100)
-          )
-          setTileGridCenter(tile, targetCenter)
-        }
+      const boardRight = raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = raster.position.y - puzzleHeight / 2
+      const rows = Math.ceil(Math.sqrt(game.tiles.length))
+      const cols = Math.ceil(game.tiles.length / rows)
+
+      game.tiles.forEach((tile: any, i: number) => {
+        const row = Math.floor(i / cols)
+        const col = i % cols
+        
+        // Calculate target logical center
+        const targetCenter = new paper.Point(
+          boardRight + (col + 0.5) * (tileWidth + 30),
+          boardTop + (row + 0.5) * (tileWidth + 30)
+        )
+        
+        setTileGridCenter(tile, targetCenter)
       })
     }
     shufflePieces()
@@ -295,54 +276,23 @@ export default function JigsawPage() {
     tool.onMouseDown = (event: any) => {
       if (game.complete) return
 
-      // Try hit test
       const hitResult = scope.hitTest(event.point, { 
-        fill: true,
-        stroke: true,
-        tolerance: 20
+        fill: true, 
+        tolerance: 15
       })
 
       if (hitResult?.item) {
-        // First check if the item itself is a tile
         let tile = hitResult.item
-        
-        if (tile.gridPosition) {
-          // Hit the group directly
-          game.selectedTile = tile
-          game.dragging = true
-          game.lastPoint = event.point
-          game.zIndex++
-          tile.pieceGroup.forEach((p: any) => {
-            p.bringToFront()
-            p.data.zIndex = game.zIndex
-          })
-          return
-        }
-        
-        // Check if it's a child with a parentTile reference
-        if (tile.data?.parentTile) {
-          game.selectedTile = tile.data.parentTile
-          game.dragging = true
-          game.lastPoint = event.point
-          game.zIndex++
-          tile.data.parentTile.pieceGroup.forEach((p: any) => {
-            p.bringToFront()
-            p.data.zIndex = game.zIndex
-          })
-          return
-        }
-        
-        // Last resort: climb parent chain
-        let searchDepth = 0
-        while (tile && !tile.gridPosition && searchDepth < 10) {
+        while (tile && !tile.gridPosition && tile.parent) {
           tile = tile.parent
-          searchDepth++
         }
 
         if (tile?.gridPosition) {
           game.selectedTile = tile
           game.dragging = true
           game.lastPoint = event.point
+
+          // Bring to front
           game.zIndex++
           tile.pieceGroup.forEach((p: any) => {
             p.bringToFront()
@@ -352,7 +302,7 @@ export default function JigsawPage() {
         }
       }
 
-      // Only pan if we definitely didn't hit a piece
+      // Start panning if not clicking a piece
       game.panning = true
       game.lastPoint = event.point
     }
@@ -466,125 +416,49 @@ export default function JigsawPage() {
       paper.view.draw()
     }
 
-    // Scatter function - break groups and randomize positions
+    // Scatter function (using JigsawGalaxy method)
     game.scatter = () => {
-      const isMobile = window.innerWidth < 768
-      
-      // Break all groups first - each piece becomes its own group
-      game.tiles.forEach((tile: any) => {
-        tile.pieceGroup = [tile]
-      })
-      
-      // Then scatter each piece randomly
-      game.tiles.forEach((tile: any) => {
-        if (isMobile) {
-          const targetCenter = new paper.Point(
-            boardX + puzzleWidth / 2 + 50 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 100),
-            Math.random() * canvasHeight
-          )
-          setTileGridCenter(tile, targetCenter)
-        } else {
-          const targetCenter = new paper.Point(
-            boardX + puzzleWidth / 2 + 80 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 150),
-            50 + Math.random() * (canvasHeight - 100)
-          )
-          setTileGridCenter(tile, targetCenter)
+      const groups = new Map<any, any[]>()
+      game.tiles.forEach((t: any) => {
+        if (!groups.has(t.pieceGroup)) {
+          groups.set(t.pieceGroup, t.pieceGroup)
         }
+      })
+
+      const boardRight = raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = raster.position.y - puzzleHeight / 2
+      let idx = 0
+
+      groups.forEach((group: any[]) => {
+        const anchor = group[0]
+        const col = idx % 6
+        const row = Math.floor(idx / 6)
+        
+        const newCenter = new paper.Point(
+          boardRight + (col + 0.5) * (tileWidth * 2 + 60),
+          boardTop + (row + 0.5) * (tileWidth * 2 + 60)
+        )
+
+        const anchorCenter = getTileGridCenter(anchor)
+        const delta = newCenter.subtract(anchorCenter)
+
+        group.forEach((piece: any) => {
+          const pieceCenter = getTileGridCenter(piece)
+          setTileGridCenter(piece, pieceCenter.add(delta))
+        })
+
+        idx++
       })
 
       paper.view.draw()
     }
 
     // Wheel zoom
-    // Wheel zoom (desktop)
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const scale = e.deltaY > 0 ? 0.9 : 1.1
       paper.view.scale(scale)
     }, { passive: false })
-
-    // Pinch-to-zoom (mobile) - improved
-    let lastDist = 0
-    let lastScale = 1
-    let pinchCenter: any = null
-
-    canvas.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        lastDist = Math.sqrt(dx * dx + dy * dy)
-        lastScale = paper.view.zoom
-        
-        // Calculate pinch center point
-        const rect = canvas.getBoundingClientRect()
-        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left
-        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
-        pinchCenter = new paper.Point(centerX, centerY)
-      }
-    }, { passive: true })
-
-    canvas.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2 && lastDist > 0) {
-        e.preventDefault()
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        
-        const scaleFactor = dist / lastDist
-        let newZoom = lastScale * scaleFactor
-        
-        // Constrain zoom limits
-        newZoom = Math.max(0.1, Math.min(3, newZoom))
-        
-        // Apply zoom around pinch center
-        if (pinchCenter) {
-          const viewCenter = paper.view.center
-          const pointInView = paper.view.viewToProject(pinchCenter)
-          
-          paper.view.zoom = newZoom
-          
-          const newPointInView = paper.view.viewToProject(pinchCenter)
-          const delta = pointInView.subtract(newPointInView)
-          paper.view.center = viewCenter.add(delta)
-        } else {
-          paper.view.zoom = newZoom
-        }
-      }
-    }, { passive: false })
-
-    canvas.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2) {
-        lastDist = 0
-        pinchCenter = null
-      }
-    }, { passive: true })
-
-    // Set initial zoom to frame the assembly area with padding
-    const setInitialZoom = () => {
-      const isMobile = window.innerWidth < 768
-      const isLandscape = window.innerWidth > window.innerHeight
-      
-      // Calculate bounds of assembly area (board + padding)
-      const boardBounds = playArea.bounds
-      const padding = isMobile ? (isLandscape ? 60 : 40) : 80
-      const targetWidth = boardBounds.width + padding * 2
-      const targetHeight = boardBounds.height + padding * 2
-      
-      // Calculate zoom to fit assembly area in view
-      const zoomX = canvasWidth / targetWidth
-      const zoomY = canvasHeight / targetHeight
-      
-      // More zoomed out on mobile landscape to show more area
-      const zoomMultiplier = (isMobile && isLandscape) ? 0.6 : 0.85
-      const targetZoom = Math.min(zoomX, zoomY) * zoomMultiplier
-      
-      paper.view.zoom = targetZoom
-      
-      // Center on assembly area
-      paper.view.center = playArea.bounds.center
-    }
-    
-    setInitialZoom()
 
     gameRef.current = game
     paper.view.draw()
@@ -624,7 +498,7 @@ export default function JigsawPage() {
     if (paperLoaded && image) {
       initPuzzle(image)
     }
-  }, [paperLoaded, numCols, numRows, image])
+  }, [paperLoaded, numCols, numRows])
 
   return (
     <>
@@ -696,13 +570,7 @@ export default function JigsawPage() {
                 <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                   <Sparkles size={16} /> Scatter
                 </button>
-                <button onClick={() => {
-                  setComplete(false)
-                  setImage(null)
-                  if (gameRef.current?.scope?.project) {
-                    gameRef.current.scope.project.clear()
-                  }
-                }} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                   <Upload size={16} /> New Game
                 </button>
               </div>
