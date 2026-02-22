@@ -215,10 +215,19 @@ export default function JigsawPage() {
         const group = new paper.Group([mask, pieceRaster, outline])
         group.clipped = true
         group.gridPosition = new paper.Point(x, y)
-        group.pieceGroup = [group]
+        
+        // CRITICAL: Each piece must have its OWN pieceGroup array
+        group.pieceGroup = [group]  // New array for each piece
         
         // Store offsets from mask (JigsawGalaxy method)
         group.offsets = mask.offsets
+        
+        // IMPORTANT: Store reference to parent group on all children
+        // This makes hit detection reliable even with clipped groups
+        group.data.isJigsawTile = true
+        mask.data.parentTile = group
+        pieceRaster.data.parentTile = group
+        outline.data.parentTile = group
 
         game.tiles.push(group)
       }
@@ -286,23 +295,54 @@ export default function JigsawPage() {
     tool.onMouseDown = (event: any) => {
       if (game.complete) return
 
+      // Try hit test
       const hitResult = scope.hitTest(event.point, { 
-        fill: true, 
-        tolerance: 15
+        fill: true,
+        stroke: true,
+        tolerance: 20
       })
 
       if (hitResult?.item) {
+        // First check if the item itself is a tile
         let tile = hitResult.item
-        while (tile && !tile.gridPosition && tile.parent) {
+        
+        if (tile.gridPosition) {
+          // Hit the group directly
+          game.selectedTile = tile
+          game.dragging = true
+          game.lastPoint = event.point
+          game.zIndex++
+          tile.pieceGroup.forEach((p: any) => {
+            p.bringToFront()
+            p.data.zIndex = game.zIndex
+          })
+          return
+        }
+        
+        // Check if it's a child with a parentTile reference
+        if (tile.data?.parentTile) {
+          game.selectedTile = tile.data.parentTile
+          game.dragging = true
+          game.lastPoint = event.point
+          game.zIndex++
+          tile.data.parentTile.pieceGroup.forEach((p: any) => {
+            p.bringToFront()
+            p.data.zIndex = game.zIndex
+          })
+          return
+        }
+        
+        // Last resort: climb parent chain
+        let searchDepth = 0
+        while (tile && !tile.gridPosition && searchDepth < 10) {
           tile = tile.parent
+          searchDepth++
         }
 
         if (tile?.gridPosition) {
           game.selectedTile = tile
           game.dragging = true
           game.lastPoint = event.point
-
-          // Bring to front
           game.zIndex++
           tile.pieceGroup.forEach((p: any) => {
             p.bringToFront()
@@ -312,7 +352,7 @@ export default function JigsawPage() {
         }
       }
 
-      // Start panning if not clicking a piece
+      // Only pan if we definitely didn't hit a piece
       game.panning = true
       game.lastPoint = event.point
     }
@@ -426,38 +466,30 @@ export default function JigsawPage() {
       paper.view.draw()
     }
 
-    // Scatter function (using JigsawGalaxy method)
+    // Scatter function - break groups and randomize positions
     game.scatter = () => {
-      const groups = new Map<any, any[]>()
-      game.tiles.forEach((t: any) => {
-        if (!groups.has(t.pieceGroup)) {
-          groups.set(t.pieceGroup, t.pieceGroup)
-        }
+      const isMobile = window.innerWidth < 768
+      
+      // Break all groups first - each piece becomes its own group
+      game.tiles.forEach((tile: any) => {
+        tile.pieceGroup = [tile]
       })
-
-      const boardRight = raster.position.x + puzzleWidth / 2 + 100
-      const boardTop = raster.position.y - puzzleHeight / 2
-      let idx = 0
-
-      groups.forEach((group: any[]) => {
-        const anchor = group[0]
-        const col = idx % 6
-        const row = Math.floor(idx / 6)
-        
-        const newCenter = new paper.Point(
-          boardRight + (col + 0.5) * (tileWidth * 2 + 60),
-          boardTop + (row + 0.5) * (tileWidth * 2 + 60)
-        )
-
-        const anchorCenter = getTileGridCenter(anchor)
-        const delta = newCenter.subtract(anchorCenter)
-
-        group.forEach((piece: any) => {
-          const pieceCenter = getTileGridCenter(piece)
-          setTileGridCenter(piece, pieceCenter.add(delta))
-        })
-
-        idx++
+      
+      // Then scatter each piece randomly
+      game.tiles.forEach((tile: any) => {
+        if (isMobile) {
+          const targetCenter = new paper.Point(
+            boardX + puzzleWidth / 2 + 50 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 100),
+            Math.random() * canvasHeight
+          )
+          setTileGridCenter(tile, targetCenter)
+        } else {
+          const targetCenter = new paper.Point(
+            boardX + puzzleWidth / 2 + 80 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 150),
+            50 + Math.random() * (canvasHeight - 100)
+          )
+          setTileGridCenter(tile, targetCenter)
+        }
       })
 
       paper.view.draw()
