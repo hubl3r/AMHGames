@@ -153,7 +153,7 @@ export default function JigsawPage() {
       const rows = Math.ceil(Math.sqrt(game.tiles.length))
       const cols = Math.ceil(game.tiles.length / rows)
 
-      game.tiles.forEach((tile: any, i: number) => {   // ← FIXED: explicit type
+      game.tiles.forEach((tile: any, i: number) => {
         const row = Math.floor(i / cols)
         const col = i % cols
         const x = boardRight + col * (tileWidth + 30) + Math.random()*20
@@ -292,7 +292,7 @@ export default function JigsawPage() {
     paper.view.center = new paper.Point(600, 400)
 
     paper.view.draw()
-  }
+  } // ←←← THIS CLOSES initPuzzle
 
   const scatterPieces = () => {
     gameRef.current?.scatter?.()
@@ -357,4 +357,64 @@ export default function JigsawPage() {
                       </div>
                     </button>
                   ))}
-                </
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)' }}>
+                <label className="block text-sm text-purple-300 mb-2">Difficulty:</label>
+                <select value={`${numCols}x${numRows}`} onChange={e => {
+                  const [cols, rows] = e.target.value.split('x').map(Number)
+                  setNumCols(cols)
+                  setNumRows(rows)
+                }} className="w-full p-2 rounded bg-purple-900/30 border border-purple-500/50 text-white">
+                  <option value="3x2">Easy (6 pieces)</option>
+                  <option value="4x3">Medium (12 pieces)</option>
+                  <option value="6x4">Hard (24 pieces)</option>
+                  <option value="8x6">Expert (48 pieces)</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex justify-center gap-3 mb-4 flex-wrap">
+                <button onClick={() => image && initPuzzle(image)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <RotateCcw size={16} /> Reset
+                </button>
+                <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <Sparkles size={16} /> Scatter
+                </button>
+                <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                  <Upload size={16} /> New Game
+                </button>
+              </div>
+
+              <div className="mb-3 text-center text-sm text-purple-300">
+                Drag pieces • Drag empty space to pan • Scroll/pinch to zoom • Pieces snap &amp; stick together
+              </div>
+
+              <div className="mx-auto rounded-xl" style={{ maxWidth: '100%', border: '2px solid rgba(168,85,247,0.3)', background: 'rgba(0,0,0,0.3)' }}>
+                <canvas
+                  ref={canvasRef}
+                  id="jigsaw-canvas"
+                  style={{ display: 'block', width: '100%', height: 'auto', touchAction: 'none' }}
+                />
+              </div>
+
+              {complete && (
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-6">
+                  <div className="inline-flex items-center gap-3 px-8 py-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.2)', border: '2px solid rgba(168,85,247,0.5)' }}>
+                    <CheckCircle size={32} className="text-purple-400" />
+                    <div className="text-left">
+                      <p className="text-2xl font-bold text-white">Puzzle Complete!</p>
+                      <p className="text-sm text-purple-300">All pieces connected</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
