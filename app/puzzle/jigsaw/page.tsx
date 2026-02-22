@@ -36,7 +36,7 @@ export default function JigsawPage() {
 
     // Clear previous puzzle
     if (gameRef.current?.scope) {
-      gameRef.current.scope.clear()
+      gameRef.current.scope.project.clear()
     }
 
     // Setup Paper.js
