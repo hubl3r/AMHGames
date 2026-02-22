@@ -161,6 +161,22 @@ export default function JigsawPage() {
 
       path.closePath()
       path.fillColor = new paper.Color(0, 0, 0, 0.01) // Hint of alpha for hit detection
+      
+      // Calculate offsets (JigsawGalaxy method)
+      // How far the bounds extend beyond the base tile corners
+      const topLeft = new paper.Point(0, 0)
+      const topRight = new paper.Point(tileWidth, 0)
+      const bottomRight = new paper.Point(tileWidth, tileWidth)
+      const bottomLeft = new paper.Point(0, tileWidth)
+      
+      // Store offsets on the path
+      path.offsets = [
+        topLeft.x - path.bounds.left,      // left offset
+        topLeft.y - path.bounds.top,       // top offset
+        path.bounds.right - topRight.x,    // right offset
+        path.bounds.bottom - bottomRight.y // bottom offset
+      ]
+      
       return path
     }
 
@@ -192,20 +208,47 @@ export default function JigsawPage() {
         group.clipped = true
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup = [group]
-
-        // CRITICAL: Set group.position to the LOGICAL CENTER
-        // This is (gridX + 0.5) * tileWidth, (gridY + 0.5) * tileWidth in board space
-        const logicalCenter = raster.position
-          .subtract(new paper.Point(puzzleWidth / 2, puzzleHeight / 2))
-          .add(new paper.Point((x + 0.5) * tileWidth, (y + 0.5) * tileWidth))
         
-        group.position = logicalCenter
+        // Store offsets from mask (JigsawGalaxy method)
+        group.offsets = mask.offsets
 
         game.tiles.push(group)
       }
     }
 
-    // Shuffle pieces to the right
+    // Helper functions (JigsawGalaxy method)
+    const getTileGridCenter = (tile: any) => {
+      const offsets = tile.offsets
+      return tile.position.add(
+        new paper.Point(
+          (offsets[0] - offsets[2]) / 2,
+          (offsets[1] - offsets[3]) / 2
+        )
+      )
+    }
+
+    const setTileGridCenter = (tile: any, targetCenter: any) => {
+      const currentPos = tile.position
+      const currentCenter = getTileGridCenter(tile)
+      tile.position = targetCenter.add(currentPos).subtract(currentCenter)
+    }
+
+    const setTileNatural = (tile: any) => {
+      const boardOrigin = raster.position.subtract(
+        new paper.Point(puzzleWidth / 2, puzzleHeight / 2)
+      )
+      const naturalCenter = tile.gridPosition
+        .add(new paper.Point(0.5, 0.5))
+        .multiply(tileWidth)
+        .add(boardOrigin)
+      
+      setTileGridCenter(tile, naturalCenter)
+    }
+
+    // Initialize all pieces at their natural positions first
+    game.tiles.forEach((tile: any) => setTileNatural(tile))
+
+    // Then shuffle pieces to the right
     const shufflePieces = () => {
       const boardRight = raster.position.x + puzzleWidth / 2 + 100
       const boardTop = raster.position.y - puzzleHeight / 2
@@ -216,11 +259,13 @@ export default function JigsawPage() {
         const row = Math.floor(i / cols)
         const col = i % cols
         
-        // Logical center position
-        const x = boardRight + (col + 0.5) * (tileWidth + 30)
-        const y = boardTop + (row + 0.5) * (tileWidth + 30)
+        // Calculate target logical center
+        const targetCenter = new paper.Point(
+          boardRight + (col + 0.5) * (tileWidth + 30),
+          boardTop + (row + 0.5) * (tileWidth + 30)
+        )
         
-        tile.position = new paper.Point(x, y)
+        setTileGridCenter(tile, targetCenter)
       })
     }
     shufflePieces()
@@ -290,14 +335,16 @@ export default function JigsawPage() {
       game.lastPoint = null
     }
 
-    // Try to connect pieces
+    // Try to connect pieces (JigsawGalaxy method)
     const tryConnect = () => {
       if (!game.selectedTile) return
 
-      const snapThreshold = tileWidth / 8
+      const snapThreshold = tileWidth / 9
       const toConnect: any[] = []
 
       for (const tile of game.selectedTile.pieceGroup) {
+        const tileCenter = getTileGridCenter(tile)
+        
         const neighbors = [
           { dx: 1, dy: 0 },
           { dx: -1, dy: 0 },
@@ -313,12 +360,17 @@ export default function JigsawPage() {
 
           if (!neighbor || tile.pieceGroup.includes(neighbor)) continue
 
-          // Expected position = tile's logical center + grid offset
-          const expectedPos = tile.position.add(
+          // Where neighbor SHOULD be (in logical center coordinates)
+          const expectedCenter = tileCenter.add(
             new paper.Point(dx * tileWidth, dy * tileWidth)
           )
-
-          const dist = neighbor.position.getDistance(expectedPos)
+          
+          // Where neighbor actually is
+          const neighborCenter = getTileGridCenter(neighbor)
+          
+          // Check distance
+          const delta = expectedCenter.subtract(neighborCenter)
+          const dist = Math.abs(delta.x) + Math.abs(delta.y)
 
           if (dist < snapThreshold && !toConnect.includes(neighbor)) {
             toConnect.push(neighbor)
@@ -346,25 +398,25 @@ export default function JigsawPage() {
       }
     }
 
-    // Align group to grid using UNIFIED coordinates
+    // Align group to grid (JigsawGalaxy method)
     const gatherGroup = (anchor: any) => {
-      const anchorCenter = anchor.position // Already the logical center!
+      const anchorCenter = getTileGridCenter(anchor)
 
       for (const piece of anchor.pieceGroup) {
         if (piece === anchor) continue
 
         // Calculate expected position based on grid offset
-        const gridOffset = piece.gridPosition.subtract(anchor.gridPosition)
-        const expectedCenter = anchorCenter.add(gridOffset.multiply(tileWidth))
+        const gridOffset = piece.gridPosition.subtract(anchor.gridPosition).multiply(tileWidth)
+        const expectedCenter = anchorCenter.add(gridOffset)
 
-        // Set position directly (it IS the logical center)
-        piece.position = expectedCenter
+        // Set piece position using the helper
+        setTileGridCenter(piece, expectedCenter)
       }
 
       paper.view.draw()
     }
 
-    // Scatter function
+    // Scatter function (using JigsawGalaxy method)
     game.scatter = () => {
       const groups = new Map<any, any[]>()
       game.tiles.forEach((t: any) => {
@@ -387,10 +439,12 @@ export default function JigsawPage() {
           boardTop + (row + 0.5) * (tileWidth * 2 + 60)
         )
 
-        const delta = newCenter.subtract(anchor.position)
+        const anchorCenter = getTileGridCenter(anchor)
+        const delta = newCenter.subtract(anchorCenter)
 
         group.forEach((piece: any) => {
-          piece.position = piece.position.add(delta)
+          const pieceCenter = getTileGridCenter(piece)
+          setTileGridCenter(piece, pieceCenter.add(delta))
         })
 
         idx++
