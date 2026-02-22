@@ -59,7 +59,8 @@ export default function JigsawPage() {
     playArea.guide = true
     playArea.sendToBack()
 
-    const game = {
+    // Use any to avoid TS errors on dynamic properties
+    const game: any = {
       scope,
       tiles: [] as any[],
       selectedTile: null as any,
@@ -141,7 +142,7 @@ export default function JigsawPage() {
         group.clipped = true
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup = [group]
-        group.data.imageCenterOffset = new paper.Point(tileWidth/2, tileWidth/2)   // used for perfect snap
+        group.data.imageCenterOffset = new paper.Point(tileWidth/2, tileWidth/2)
 
         game.tiles.push(group)
       }
@@ -260,29 +261,24 @@ export default function JigsawPage() {
       paper.view.draw()
     }
 
-    // ====================== SCATTER (respects full groups) ======================
+    // ====================== SCATTER (respects groups) ======================
     game.scatter = () => {
-      const groups = new Map()
-      game.tiles.forEach(t => {
+      const groups = new Map<any, any[]>()
+      game.tiles.forEach((t: any) => {
         const key = t.pieceGroup
         if (!groups.has(key)) groups.set(key, key)
       })
 
-      const boardRight = game.raster.position.x + puzzleWidth/2 + 100
-      const boardTop = game.raster.position.y - puzzleHeight/2
+      const boardRight = game.raster.position.x + puzzleWidth / 2 + 100
+      const boardTop = game.raster.position.y - puzzleHeight / 2
       let idx = 0
 
-      groups.forEach(group => {
-        const rows = Math.ceil(Math.sqrt(group.length))
-        const cols = Math.ceil(group.length / rows)
-        const row = Math.floor(idx / 5)   // spread groups in columns
-        const col = idx % 5
-
-        const baseX = boardRight + col * (tileWidth * 2 + 40)
-        const baseY = boardTop + row * (tileWidth * 2 + 40)
-
+      groups.forEach((group) => {
         const anchor = group[0]
-        const delta = new paper.Point(baseX, baseY).subtract(anchor.position)
+        const spreadX = boardRight + (idx % 6) * (tileWidth * 2 + 60)
+        const spreadY = boardTop + Math.floor(idx / 6) * (tileWidth * 2 + 60)
+
+        const delta = new paper.Point(spreadX, spreadY).subtract(anchor.position)
 
         group.forEach((piece: any) => {
           piece.position = piece.position.add(delta)
@@ -294,9 +290,9 @@ export default function JigsawPage() {
 
     gameRef.current = game
 
-    // Auto-fit view so everything is always visible (especially on mobile + when changing difficulty)
-    const maxDim = Math.max(puzzleWidth + 500, puzzleHeight + 300)
-    const fitZoom = Math.min(1, 1050 / maxDim)
+    // Auto-fit view (prevents disappearing on resize / difficulty change)
+    const maxDim = Math.max(puzzleWidth + 600, puzzleHeight + 400)
+    const fitZoom = Math.min(1, 1100 / maxDim)
     paper.view.zoom = fitZoom
     paper.view.center = new paper.Point(600, 400)
 
@@ -304,7 +300,7 @@ export default function JigsawPage() {
   }
 
   const scatterPieces = () => {
-    if (gameRef.current?.scatter) gameRef.current.scatter()
+    gameRef.current?.scatter?.()
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
