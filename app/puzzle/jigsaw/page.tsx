@@ -377,7 +377,7 @@ export default function JigsawPage() {
     // ---- TOUCH EVENTS for mobile ----
     let activeTouches: Touch[] = []
     let lastPinchDist = 0
-    let lastTouchPoint: paper.Point | null = null
+    let lastTouchPoint: any = null
     let touchDraggingTile: any = null
     let touchPanning = false
 
