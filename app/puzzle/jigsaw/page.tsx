@@ -39,14 +39,22 @@ export default function JigsawPage() {
       gameRef.current.scope.project.clear()
     }
 
-    // Setup Paper.js
+    // Setup Paper.js with responsive sizing
     paper.setup(canvas)
-    paper.view.viewSize = new paper.Size(1200, 800)
+    
+    // Make canvas responsive to viewport
+    const isMobile = window.innerWidth < 768
+    const canvasWidth = isMobile ? window.innerWidth - 32 : Math.min(1400, window.innerWidth - 100)
+    const canvasHeight = isMobile ? window.innerHeight - 200 : 900
+    
+    paper.view.viewSize = new paper.Size(canvasWidth, canvasHeight)
     const scope = paper.project
 
-    // Create puzzle image
+    // Create puzzle image - position based on screen size
     const raster = new paper.Raster(img)
-    raster.position = new paper.Point(300, 250)
+    const boardX = isMobile ? 80 : 200
+    const boardY = isMobile ? canvasHeight * 0.35 : canvasHeight * 0.4
+    raster.position = new paper.Point(boardX, boardY)
     raster.visible = false
 
     const tileWidth = 100
@@ -248,24 +256,26 @@ export default function JigsawPage() {
     // Initialize all pieces at their natural positions first
     game.tiles.forEach((tile: any) => setTileNatural(tile))
 
-    // Then shuffle pieces to the right
+    // Then scatter pieces randomly - mobile optimized
     const shufflePieces = () => {
-      const boardRight = raster.position.x + puzzleWidth / 2 + 100
-      const boardTop = raster.position.y - puzzleHeight / 2
-      const rows = Math.ceil(Math.sqrt(game.tiles.length))
-      const cols = Math.ceil(game.tiles.length / rows)
-
-      game.tiles.forEach((tile: any, i: number) => {
-        const row = Math.floor(i / cols)
-        const col = i % cols
-        
-        // Calculate target logical center
-        const targetCenter = new paper.Point(
-          boardRight + (col + 0.5) * (tileWidth + 30),
-          boardTop + (row + 0.5) * (tileWidth + 30)
-        )
-        
-        setTileGridCenter(tile, targetCenter)
+      const isMobile = window.innerWidth < 768
+      
+      game.tiles.forEach((tile: any) => {
+        if (isMobile) {
+          // Mobile: scatter to right and below
+          const targetCenter = new paper.Point(
+            boardX + puzzleWidth / 2 + 50 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 100),
+            Math.random() * canvasHeight
+          )
+          setTileGridCenter(tile, targetCenter)
+        } else {
+          // Desktop: wide scatter to the right
+          const targetCenter = new paper.Point(
+            boardX + puzzleWidth / 2 + 80 + Math.random() * (canvasWidth - boardX - puzzleWidth / 2 - 150),
+            50 + Math.random() * (canvasHeight - 100)
+          )
+          setTileGridCenter(tile, targetCenter)
+        }
       })
     }
     shufflePieces()
@@ -498,7 +508,7 @@ export default function JigsawPage() {
     if (paperLoaded && image) {
       initPuzzle(image)
     }
-  }, [paperLoaded, numCols, numRows])
+  }, [paperLoaded, numCols, numRows, image])
 
   return (
     <>
@@ -570,7 +580,13 @@ export default function JigsawPage() {
                 <button onClick={scatterPieces} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                   <Sparkles size={16} /> Scatter
                 </button>
-                <button onClick={() => setImage(null)} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
+                <button onClick={() => {
+                  setComplete(false)
+                  setImage(null)
+                  if (gameRef.current?.scope) {
+                    gameRef.current.scope.project.clear()
+                  }
+                }} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
                   <Upload size={16} /> New Game
                 </button>
               </div>
