@@ -35,7 +35,7 @@ export default function JigsawPage() {
     const canvas = canvasRef.current
 
     // Clear previous puzzle
-    if (gameRef.current?.scope) {
+    if (gameRef.current?.scope?.project) {
       gameRef.current.scope.project.clear()
     }
 
@@ -471,9 +471,10 @@ export default function JigsawPage() {
       paper.view.scale(scale)
     }, { passive: false })
 
-    // Pinch-to-zoom (mobile)
+    // Pinch-to-zoom (mobile) - improved
     let lastDist = 0
     let lastScale = 1
+    let pinchCenter: any = null
 
     canvas.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
@@ -481,19 +482,40 @@ export default function JigsawPage() {
         const dy = e.touches[0].clientY - e.touches[1].clientY
         lastDist = Math.sqrt(dx * dx + dy * dy)
         lastScale = paper.view.zoom
+        
+        // Calculate pinch center point
+        const rect = canvas.getBoundingClientRect()
+        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left
+        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+        pinchCenter = new paper.Point(centerX, centerY)
       }
     }, { passive: true })
 
     canvas.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2) {
+      if (e.touches.length === 2 && lastDist > 0) {
         e.preventDefault()
         const dx = e.touches[0].clientX - e.touches[1].clientX
         const dy = e.touches[0].clientY - e.touches[1].clientY
         const dist = Math.sqrt(dx * dx + dy * dy)
         
-        if (lastDist > 0) {
-          const scale = dist / lastDist
-          paper.view.zoom = lastScale * scale
+        const scaleFactor = dist / lastDist
+        let newZoom = lastScale * scaleFactor
+        
+        // Constrain zoom limits
+        newZoom = Math.max(0.1, Math.min(3, newZoom))
+        
+        // Apply zoom around pinch center
+        if (pinchCenter) {
+          const viewCenter = paper.view.center
+          const pointInView = paper.view.viewToProject(pinchCenter)
+          
+          paper.view.zoom = newZoom
+          
+          const newPointInView = paper.view.viewToProject(pinchCenter)
+          const delta = pointInView.subtract(newPointInView)
+          paper.view.center = viewCenter.add(delta)
+        } else {
+          paper.view.zoom = newZoom
         }
       }
     }, { passive: false })
@@ -501,23 +523,28 @@ export default function JigsawPage() {
     canvas.addEventListener('touchend', (e) => {
       if (e.touches.length < 2) {
         lastDist = 0
+        pinchCenter = null
       }
     }, { passive: true })
 
     // Set initial zoom to frame the assembly area with padding
     const setInitialZoom = () => {
       const isMobile = window.innerWidth < 768
+      const isLandscape = window.innerWidth > window.innerHeight
       
       // Calculate bounds of assembly area (board + padding)
       const boardBounds = playArea.bounds
-      const padding = isMobile ? 40 : 80
+      const padding = isMobile ? (isLandscape ? 60 : 40) : 80
       const targetWidth = boardBounds.width + padding * 2
       const targetHeight = boardBounds.height + padding * 2
       
       // Calculate zoom to fit assembly area in view
       const zoomX = canvasWidth / targetWidth
       const zoomY = canvasHeight / targetHeight
-      const targetZoom = Math.min(zoomX, zoomY) * 0.85 // 85% to add margin
+      
+      // More zoomed out on mobile landscape to show more area
+      const zoomMultiplier = (isMobile && isLandscape) ? 0.6 : 0.85
+      const targetZoom = Math.min(zoomX, zoomY) * zoomMultiplier
       
       paper.view.zoom = targetZoom
       
@@ -640,7 +667,7 @@ export default function JigsawPage() {
                 <button onClick={() => {
                   setComplete(false)
                   setImage(null)
-                  if (gameRef.current?.scope) {
+                  if (gameRef.current?.scope?.project) {
                     gameRef.current.scope.project.clear()
                   }
                 }} className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105 text-sm" style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.5)', color: 'white' }}>
