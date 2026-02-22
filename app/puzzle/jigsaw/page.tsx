@@ -464,11 +464,68 @@ export default function JigsawPage() {
     }
 
     // Wheel zoom
+    // Wheel zoom (desktop)
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const scale = e.deltaY > 0 ? 0.9 : 1.1
       paper.view.scale(scale)
     }, { passive: false })
+
+    // Pinch-to-zoom (mobile)
+    let lastDist = 0
+    let lastScale = 1
+
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastDist = Math.sqrt(dx * dx + dy * dy)
+        lastScale = paper.view.zoom
+      }
+    }, { passive: true })
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault()
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        
+        if (lastDist > 0) {
+          const scale = dist / lastDist
+          paper.view.zoom = lastScale * scale
+        }
+      }
+    }, { passive: false })
+
+    canvas.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        lastDist = 0
+      }
+    }, { passive: true })
+
+    // Set initial zoom to frame the assembly area with padding
+    const setInitialZoom = () => {
+      const isMobile = window.innerWidth < 768
+      
+      // Calculate bounds of assembly area (board + padding)
+      const boardBounds = playArea.bounds
+      const padding = isMobile ? 40 : 80
+      const targetWidth = boardBounds.width + padding * 2
+      const targetHeight = boardBounds.height + padding * 2
+      
+      // Calculate zoom to fit assembly area in view
+      const zoomX = canvasWidth / targetWidth
+      const zoomY = canvasHeight / targetHeight
+      const targetZoom = Math.min(zoomX, zoomY) * 0.85 // 85% to add margin
+      
+      paper.view.zoom = targetZoom
+      
+      // Center on assembly area
+      paper.view.center = playArea.bounds.center
+    }
+    
+    setInitialZoom()
 
     gameRef.current = game
     paper.view.draw()
