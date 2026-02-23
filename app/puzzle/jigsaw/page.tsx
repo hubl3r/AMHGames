@@ -182,7 +182,7 @@ export default function JigsawPage() {
     const doScatter = () => {
       const cx = WORLD_CX, cy = WORLD_CY
       const hw = puzzleWidth/2, hh = puzzleHeight/2
-      const pad = 80  // gap between assembly edge and nearest scatter position
+      const pad = 30  // gap between assembly edge and nearest scatter position
 
       const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
       shuffled.forEach((tile: any) => {
@@ -296,9 +296,8 @@ export default function JigsawPage() {
 
     const touchToWorld = (t: Touch) => {
       const r  = canvas.getBoundingClientRect()
-      const px = (t.clientX - r.left) * (canvas.width  / r.width)
-      const py = (t.clientY - r.top)  * (canvas.height / r.height)
-      return paper.view.viewToProject(new paper.Point(px, py))
+      // Use CSS-pixel offset relative to canvas (same as offsetX/offsetY that Paper.js uses for mouse events)
+      return paper.view.viewToProject(new paper.Point(t.clientX - r.left, t.clientY - r.top))
     }
 
     canvas.addEventListener('touchstart', (e: TouchEvent) => {
@@ -345,15 +344,14 @@ export default function JigsawPage() {
           const factor = dist / lastPinchDist
           const r      = canvas.getBoundingClientRect()
           const pivot  = paper.view.viewToProject(new paper.Point(
-            (midX - r.left) * (canvas.width  / r.width),
-            (midY - r.top)  * (canvas.height / r.height)
+            midX - r.left,
+            midY - r.top
           ))
           paper.view.scale(factor, pivot)
           // pan from mid movement
           const dmx = midX - lastMidX, dmy = midY - lastMidY
           if (Math.abs(dmx) + Math.abs(dmy) > 0) {
-            const scx = canvas.width / r.width, scy = canvas.height / r.height
-            const dWorld = paper.view.viewToProject(new paper.Point(dmx * scx, dmy * scy))
+            const dWorld = paper.view.viewToProject(new paper.Point(dmx, dmy))
               .subtract(paper.view.viewToProject(new paper.Point(0, 0)))
             paper.view.translate(dWorld)
           }
@@ -386,8 +384,8 @@ export default function JigsawPage() {
       const vw = canvas.width  / (window.devicePixelRatio || 1)
       const vh = canvas.height / (window.devicePixelRatio || 1)
       // Total area to show: assembly + scatter pad on all sides
-      const showW = puzzleWidth  + (80 + 50) * 2   // pad + maxSpread each side
-      const showH = puzzleHeight + (80 + 50) * 2
+      const showW = puzzleWidth  + (30 + 50) * 2   // pad + maxSpread each side
+      const showH = puzzleHeight + (30 + 50) * 2
       const zoom  = Math.min(vw / showW, vh / showH) * 0.92
       paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
