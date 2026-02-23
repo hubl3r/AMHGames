@@ -403,26 +403,27 @@ export default function JigsawPage() {
 
   const handleDiff = (cols: number, rows: number) => {
     setNumCols(cols); setNumRows(rows); setShowDiff(false); setComplete(false)
-    if (image) setTimeout(() => initPuzzle(image, cols, rows), 50)
   }
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     const url = URL.createObjectURL(file)
     const img = new Image()
-    img.onload = () => { setImage(img); setImageSrc(url); setComplete(false); setTimeout(() => initPuzzle(img), 100) }
+    img.onload = () => { setComplete(false); setImageSrc(url); setImage(img) }
     img.src = url
   }
 
   const loadSample = (url: string) => {
     const img = new Image(); img.crossOrigin = 'anonymous'
-    img.onload = () => { setImage(img); setImageSrc(url); setComplete(false); setTimeout(() => initPuzzle(img), 100) }
+    img.onload = () => { setComplete(false); setImageSrc(url); setImage(img) }
     img.src = url
   }
 
+  // Fires after React has rendered the canvas (image mount or difficulty change)
   useEffect(() => {
-    if (paperLoaded && image) initPuzzle(image)
-  }, [paperLoaded, numCols, numRows])
+    if (!paperLoaded || !image) return
+    requestAnimationFrame(() => initPuzzle(image))
+  }, [paperLoaded, image, numCols, numRows])
 
   // ── Styles ─────────────────────────────────────────────────────────────────
   const toolBtn: React.CSSProperties = {
