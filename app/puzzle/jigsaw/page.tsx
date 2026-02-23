@@ -2,190 +2,220 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Upload, RotateCcw, CheckCircle, Sparkles,
-  ZoomIn, ZoomOut, Maximize2, Eye, Grid3x3, ImageIcon
-} from 'lucide-react'
+import { Upload, RotateCcw, Sparkles, Eye, Grid3X3, Maximize2, Plus, Minus, CheckCircle, X } from 'lucide-react'
 import Script from 'next/script'
+
+// ── World constants ────────────────────────────────────────────────────────────
+const WORLD_W     = 2200
+const WORLD_H     = 1600
+const ASSEMBLY_W  = 1200
+const ASSEMBLY_H  = 900
+const ASSEMBLY_CX = WORLD_W / 2
+const ASSEMBLY_CY = WORLD_H / 2
+const ASSEMBLY_X  = ASSEMBLY_CX - ASSEMBLY_W / 2   // 500
+const ASSEMBLY_Y  = ASSEMBLY_CY - ASSEMBLY_H / 2   // 350
+const SCATTER_W   = 1600
+const SCATTER_H   = 1300
+
+const NAVBAR_H    = 50
+const TOOLBAR_H   = 60
+const PAN_MARGIN  = 10
+const INIT_SCALE  = 0.265
+const MIN_ZOOM    = 0.05
+const MAX_ZOOM    = 1.0
 
 const SAMPLE_IMAGES = [
   { url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop', name: 'Mountain' },
   { url: 'https://images.unsplash.com/photo-1511593358241-7eea1f3c84e5?w=800&h=600&fit=crop', name: 'Waterfall' },
   { url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&h=600&fit=crop', name: 'Forest' },
-  { url: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=800&h=600&fit=crop', name: 'Parrots' }
+  { url: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=800&h=600&fit=crop', name: 'Parrots' },
 ]
 
 const DIFFICULTIES = [
-  { label: 'Easy',   value: '3x2',  pieces: 6  },
-  { label: 'Medium', value: '4x3',  pieces: 12 },
-  { label: 'Hard',   value: '6x4',  pieces: 24 },
-  { label: 'Expert', value: '8x6',  pieces: 48 },
+  { label: 'Easy',   cols: 3, rows: 2 },
+  { label: 'Medium', cols: 4, rows: 3 },
+  { label: 'Hard',   cols: 6, rows: 4 },
+  { label: 'Expert', cols: 8, rows: 6 },
 ]
 
-declare global {
-  interface Window { paper: any }
-}
-
-// World size — virtual table
-const WORLD_W = 1000
-const WORLD_H = 700
+declare global { interface Window { paper: any } }
 
 export default function JigsawPage() {
-  const [image, setImage]             = useState<HTMLImageElement | null>(null)
-  const [imageSrc, setImageSrc]       = useState<string>('')
-  const [numCols, setNumCols]         = useState(4)
-  const [numRows, setNumRows]         = useState(3)
-  const [complete, setComplete]       = useState(false)
+  const [image,       setImage]       = useState<HTMLImageElement | null>(null)
+  const [imageSrc,    setImageSrc]    = useState('')
+  const [numCols,     setNumCols]     = useState(4)
+  const [numRows,     setNumRows]     = useState(3)
+  const [complete,    setComplete]    = useState(false)
   const [paperLoaded, setPaperLoaded] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
-  const [showDiffMenu, setShowDiffMenu] = useState(false)
+  const [showDiff,    setShowDiff]    = useState(false)
 
-  const canvasRef    = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const gameRef      = useRef<any>(null)
-  const wheelCleanup = useRef<(() => void) | null>(null)
-  const touchCleanup = useRef<(() => void) | null>(null)
-  const numColsRef   = useRef(numCols)
-  const numRowsRef   = useRef(numRows)
-  useEffect(() => { numColsRef.current = numCols }, [numCols])
-  useEffect(() => { numRowsRef.current = numRows }, [numRows])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const gameRef   = useRef<any>(null)
+  const viewState = useRef({ panX: 0, panY: 0, scale: INIT_SCALE })
 
+  // ── Usable screen area (between navbar and toolbar) ───────────────────────
+  const getUsable = useCallback(() => {
+    const cv = canvasRef.current
+    const w  = cv ? cv.clientWidth  : 390
+    const h  = cv ? cv.clientHeight : 660
+    return { x: 0, y: NAVBAR_H, w, h: h - NAVBAR_H - TOOLBAR_H }
+  }, [])
+
+  // ── Max zoom so assembly never exceeds usable area ────────────────────────
+  const getMaxZoom = useCallback(() => {
+    const u = getUsable()
+    return Math.min(MAX_ZOOM, u.w / ASSEMBLY_W, u.h / ASSEMBLY_H)
+  }, [getUsable])
+
+  // ── Pan clamping: assembly edge cannot cross its OPPOSITE screen edge ─────
+  //   assembly RIGHT  must stay right of screen LEFT  → minX
+  //   assembly LEFT   must stay left  of screen RIGHT → maxX
+  //   assembly BOTTOM must stay below screen TOP      → minY
+  //   assembly TOP    must stay above screen BOTTOM   → maxY
+  const clampPan = useCallback((px: number, py: number, sc?: number) => {
+    const s = sc ?? viewState.current.scale
+    const u = getUsable()
+    const M = PAN_MARGIN
+    const minX = u.x + M          - (ASSEMBLY_X + ASSEMBLY_W) * s
+    const maxX = u.x + u.w - M   - ASSEMBLY_X * s
+    const minY = u.y + M          - (ASSEMBLY_Y + ASSEMBLY_H) * s
+    const maxY = u.y + u.h - M   - ASSEMBLY_Y * s
+    return {
+      x: Math.max(minX, Math.min(maxX, px)),
+      y: Math.max(minY, Math.min(maxY, py)),
+    }
+  }, [getUsable])
+
+  // ── Apply pan/zoom to Paper.js view ──────────────────────────────────────
+  const applyView = useCallback(() => {
+    const p = window.paper
+    if (!p?.view) return
+    const { panX, panY, scale } = viewState.current
+    const u   = getUsable()
+    const scx = u.x + u.w / 2
+    const scy = u.y + u.h / 2
+    p.view.zoom   = scale
+    p.view.center = new p.Point((scx - panX) / scale, (scy - panY) / scale)
+  }, [getUsable])
+
+  // ── Center assembly in usable area ────────────────────────────────────────
+  const centerAssembly = useCallback((sc?: number) => {
+    const s = sc ?? viewState.current.scale
+    const u = getUsable()
+    const rawX = (u.x + u.w / 2) - ASSEMBLY_CX * s
+    const rawY = (u.y + u.h / 2) - ASSEMBLY_CY * s
+    const c    = clampPan(rawX, rawY, s)
+    viewState.current = { panX: c.x, panY: c.y, scale: s }
+  }, [getUsable, clampPan])
+
+  // ── Build puzzle ──────────────────────────────────────────────────────────
   const initPuzzle = useCallback((img: HTMLImageElement, cols: number, rows: number) => {
     if (!canvasRef.current || !window.paper) return
-
     const paper  = window.paper
     const canvas = canvasRef.current
 
-    if (wheelCleanup.current) { wheelCleanup.current(); wheelCleanup.current = null }
-    if (touchCleanup.current) { touchCleanup.current(); touchCleanup.current = null }
-
+    // Tear down previous
+    if (gameRef.current?.tool) gameRef.current.tool.remove()
     paper.setup(canvas)
     paper.view.viewSize = new paper.Size(WORLD_W, WORLD_H)
-
     const scope = paper.project
 
-    const tileWidth    = 100
-    const puzzleWidth  = tileWidth * cols
-    const puzzleHeight = tileWidth * rows
-
-    const boardCenter = new paper.Point(WORLD_W / 2, WORLD_H / 2)
-
+    // Raster
     const raster = new paper.Raster(img)
-    raster.position = boardCenter
-    raster.size     = new paper.Size(puzzleWidth, puzzleHeight)
+    raster.position = new paper.Point(ASSEMBLY_CX, ASSEMBLY_CY)
+    raster.size     = new paper.Size(ASSEMBLY_W, ASSEMBLY_H)
     raster.visible  = false
 
-    // Assembly zone
-    const assemblyZone = new paper.Path.Rectangle({
-      center:      boardCenter,
-      size:        [puzzleWidth + 20, puzzleHeight + 20],
-      fillColor:   new paper.Color(0, 0, 0, 0.12),
-      strokeColor: new paper.Color(0.66, 0.33, 0.97, 0.45),
-      strokeWidth: 1.5,
-      dashArray:   [6, 4],
-    })
-    assemblyZone.guide = true
-    assemblyZone.sendToBack()
+    const tileW = ASSEMBLY_W / cols
+    const tileH = ASSEMBLY_H / rows
 
-    const assemblyLabel = new paper.PointText({
-      point:         new paper.Point(boardCenter.x, boardCenter.y - puzzleHeight / 2 - 10),
-      content:       'Assembly Area',
-      fillColor:     new paper.Color(0.66, 0.33, 0.97, 0.35),
-      fontFamily:    'monospace',
-      fontSize:      11,
-      justification: 'center',
-    })
-    assemblyLabel.guide = true
+    // Assembly zone
+    new paper.Path.Rectangle({
+      point:  [ASSEMBLY_X, ASSEMBLY_Y],
+      size:   [ASSEMBLY_W, ASSEMBLY_H],
+      fillColor:   new paper.Color(0, 0, 0, 0.12),
+      strokeColor: new paper.Color(0.66, 0.33, 0.97, 0.3),
+      strokeWidth: 2,
+      dashArray:   [8, 5],
+    }).guide = true
 
     const game: any = {
-      tiles: [] as any[],
-      selectedTile: null,
-      dragging:     false,
-      panning:      false,
-      lastPoint:    null,
-      tileWidth,
-      numCols: cols,
-      numRows: rows,
-      raster,
-      boardCenter,
-      puzzleWidth,
-      puzzleHeight,
-      complete: false,
-      zIndex:   0,
+      scope, tiles: [], selectedTile: null,
+      dragging: false, panning: false, lastPoint: null,
+      complete: false, zIndex: 0, tool: null,
     }
 
-    // ── Tab curve ──────────────────────────────────────────────────────────
-    const tabCurve = [0,0,35,15,37,5,37,5,40,0,38,-5,38,-5,20,-20,50,-20,50,-20,80,-20,62,-5,62,-5,60,0,63,5,63,5,65,15,100,0]
+    // Tab curve (normalised to 0-100)
+    const TC = [0,0,35,15,37,5,37,5,40,0,38,-5,38,-5,20,-20,50,-20,50,-20,80,-20,62,-5,62,-5,60,0,63,5,63,5,65,15,100,0]
 
-    const tabPattern: number[][] = []
+    // Tab pattern
+    const tabPat: number[][] = []
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
-        const top    = y === 0      ? 0 : -tabPattern[(y-1)*cols+x][2]
-        const left   = x === 0      ? 0 : -tabPattern[y*cols+(x-1)][1]
-        const right  = x === cols-1 ? 0 : Math.random() > 0.5 ? 1 : -1
-        const bottom = y === rows-1 ? 0 : Math.random() > 0.5 ? 1 : -1
-        tabPattern.push([top, right, bottom, left])
+        const top    = y === 0      ? 0 : -tabPat[(y-1)*cols+x][2]
+        const left   = x === 0      ? 0 : -tabPat[y*cols+(x-1)][1]
+        const right  = x === cols-1 ? 0 : Math.random()>.5 ? 1 : -1
+        const bottom = y === rows-1 ? 0 : Math.random()>.5 ? 1 : -1
+        tabPat.push([top, right, bottom, left])
       }
     }
 
-    // ── Mask ──────────────────────────────────────────────────────────────
-    const createMask = (gridX: number, gridY: number) => {
-      const scale   = tileWidth / 100
-      const pattern = tabPattern[gridY * cols + gridX]
-      const path    = new paper.Path()
+    const createMask = (gx: number, gy: number) => {
+      const tw = tileW, th = tileH
+      const sx = tw / 100, sy = th / 100
+      const pat = tabPat[gy * cols + gx]
+      const path = new paper.Path()
       path.moveTo([0, 0])
 
-      if (gridY > 0 && pattern[0] !== 0) {
-        const dir = pattern[0]
-        for (let i = 0; i < tabCurve.length; i += 6)
-          path.cubicCurveTo([tabCurve[i]*scale,dir*tabCurve[i+1]*scale],[tabCurve[i+2]*scale,dir*tabCurve[i+3]*scale],[tabCurve[i+4]*scale,dir*tabCurve[i+5]*scale])
-      } else { path.lineTo([tileWidth, 0]) }
+      // Top
+      if (gy > 0 && pat[0] !== 0) {
+        const d = pat[0]
+        for (let i = 0; i < TC.length; i += 6)
+          path.cubicCurveTo([TC[i]*sx, d*TC[i+1]*sy], [TC[i+2]*sx, d*TC[i+3]*sy], [TC[i+4]*sx, d*TC[i+5]*sy])
+      } else path.lineTo([tw, 0])
 
-      if (gridX < cols-1 && pattern[1] !== 0) {
-        const dir = pattern[1]
-        for (let i = 0; i < tabCurve.length; i += 6)
-          path.cubicCurveTo([tileWidth-dir*tabCurve[i+1]*scale,tabCurve[i]*scale],[tileWidth-dir*tabCurve[i+3]*scale,tabCurve[i+2]*scale],[tileWidth-dir*tabCurve[i+5]*scale,tabCurve[i+4]*scale])
-      } else { path.lineTo([tileWidth, tileWidth]) }
+      // Right
+      if (gx < cols-1 && pat[1] !== 0) {
+        const d = pat[1]
+        for (let i = 0; i < TC.length; i += 6)
+          path.cubicCurveTo([tw-d*TC[i+1]*sx, TC[i]*sy], [tw-d*TC[i+3]*sx, TC[i+2]*sy], [tw-d*TC[i+5]*sx, TC[i+4]*sy])
+      } else path.lineTo([tw, th])
 
-      if (gridY < rows-1 && pattern[2] !== 0) {
-        const dir = pattern[2]
-        for (let i = 0; i < tabCurve.length; i += 6)
-          path.cubicCurveTo([tileWidth-tabCurve[i]*scale,tileWidth-dir*tabCurve[i+1]*scale],[tileWidth-tabCurve[i+2]*scale,tileWidth-dir*tabCurve[i+3]*scale],[tileWidth-tabCurve[i+4]*scale,tileWidth-dir*tabCurve[i+5]*scale])
-      } else { path.lineTo([0, tileWidth]) }
+      // Bottom
+      if (gy < rows-1 && pat[2] !== 0) {
+        const d = pat[2]
+        for (let i = 0; i < TC.length; i += 6)
+          path.cubicCurveTo([tw-TC[i]*sx, th-d*TC[i+1]*sy], [tw-TC[i+2]*sx, th-d*TC[i+3]*sy], [tw-TC[i+4]*sx, th-d*TC[i+5]*sy])
+      } else path.lineTo([0, th])
 
-      if (gridX > 0 && pattern[3] !== 0) {
-        const dir = pattern[3]
-        for (let i = 0; i < tabCurve.length; i += 6)
-          path.cubicCurveTo([dir*tabCurve[i+1]*scale,tileWidth-tabCurve[i]*scale],[dir*tabCurve[i+3]*scale,tileWidth-tabCurve[i+2]*scale],[dir*tabCurve[i+5]*scale,tileWidth-tabCurve[i+4]*scale])
-      } else { path.lineTo([0, 0]) }
+      // Left
+      if (gx > 0 && pat[3] !== 0) {
+        const d = pat[3]
+        for (let i = 0; i < TC.length; i += 6)
+          path.cubicCurveTo([d*TC[i+1]*sx, th-TC[i]*sy], [d*TC[i+3]*sx, th-TC[i+2]*sy], [d*TC[i+5]*sx, th-TC[i+4]*sy])
+      } else path.lineTo([0, 0])
 
       path.closePath()
       path.fillColor = new paper.Color(0, 0, 0, 0.01)
-      path.offsets   = [
-        0 - path.bounds.left,
-        0 - path.bounds.top,
-        path.bounds.right - tileWidth,
-        path.bounds.bottom - tileWidth,
-      ]
+      path.offsets = [0 - path.bounds.left, 0 - path.bounds.top, path.bounds.right - tw, path.bounds.bottom - th]
       return path
     }
 
-    // ── Create pieces ──────────────────────────────────────────────────────
+    // Build pieces
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
-        const mask   = createMask(x, y)
-        const margin = 20
-        const pieceRaster = raster.getSubRaster(
-          new paper.Rectangle(x*tileWidth-margin, y*tileWidth-margin, tileWidth+margin*2, tileWidth+margin*2)
-        )
-        pieceRaster.position = new paper.Point(tileWidth/2, tileWidth/2)
+        const mask = createMask(x, y)
+        const mg   = 20
+        const pr   = raster.getSubRaster(new paper.Rectangle(x*tileW - mg, y*tileH - mg, tileW + mg*2, tileH + mg*2))
+        pr.position = new paper.Point(tileW/2, tileH/2)
 
         const outline = mask.clone()
-        outline.strokeColor = new paper.Color('rgba(255,255,255,0.3)')
+        outline.strokeColor = new paper.Color('rgba(255,255,255,0.22)')
         outline.strokeWidth = 1
         outline.fillColor   = null
 
-        const group        = new paper.Group([mask, pieceRaster, outline])
+        const group = new paper.Group([mask, pr, outline])
         group.clipped      = true
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup   = [group]
@@ -194,584 +224,391 @@ export default function JigsawPage() {
       }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-    const getTileGridCenter = (tile: any) => {
-      const o = tile.offsets
-      return tile.position.add(new paper.Point((o[0]-o[2])/2, (o[1]-o[3])/2))
+    // Helpers
+    const getCenter = (t: any) => {
+      const [ol, ot, or_, ob] = t.offsets
+      return t.position.add(new paper.Point((ol - or_)/2, (ot - ob)/2))
     }
-    const setTileGridCenter = (tile: any, target: any) => {
-      const cur = getTileGridCenter(tile)
-      tile.position = target.add(tile.position).subtract(cur)
+    const setCenter = (t: any, target: any) => {
+      t.position = target.add(t.position).subtract(getCenter(t))
     }
-    const setTileNatural = (tile: any) => {
-      const origin = boardCenter.subtract(new paper.Point(puzzleWidth/2, puzzleHeight/2))
-      const nat    = tile.gridPosition.add(new paper.Point(0.5,0.5)).multiply(tileWidth).add(origin)
-      setTileGridCenter(tile, nat)
+    const setNatural = (t: any) => {
+      const origin = new paper.Point(ASSEMBLY_X, ASSEMBLY_Y)
+      setCenter(t, t.gridPosition.add(new paper.Point(.5,.5)).multiply(new paper.Point(tileW, tileH)).add(origin))
     }
 
-    game.tiles.forEach((t: any) => setTileNatural(t))
+    game.tiles.forEach((t: any) => setNatural(t))
 
-    // ── Scatter pieces close around assembly zone ──────────────────────────
-    const doScatter = (tiles: any[]) => {
-      const halfW = puzzleWidth  / 2
-      const halfH = puzzleHeight / 2
-      const cx    = boardCenter.x
-      const cy    = boardCenter.y
-      // Ring around assembly area (overlap allowed, just avoid center box)
-      const innerPad = 20   // min gap from assembly edge
-      const outerRng = Math.max(WORLD_W, WORLD_H) * 0.35  // max ring width
-
-      const shuffled = [...tiles].sort(() => Math.random() - 0.5)
+    // Scatter pieces in ring around assembly
+    const doScatter = () => {
+      const cx = ASSEMBLY_CX, cy = ASSEMBLY_CY
+      const hw = SCATTER_W / 2, hh = SCATTER_H / 2
+      const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
       shuffled.forEach((tile: any) => {
-        let tx = cx, ty = cy
-        let tries = 0
+        let tx = cx, ty = cy, att = 0
         do {
           const side = Math.floor(Math.random() * 4)
-          if (side === 0) {
-            // left
-            tx = cx - halfW - innerPad - Math.random() * outerRng
-            ty = cy + (Math.random() - 0.5) * (puzzleHeight + outerRng * 1.5)
-          } else if (side === 1) {
-            // right
-            tx = cx + halfW + innerPad + Math.random() * outerRng
-            ty = cy + (Math.random() - 0.5) * (puzzleHeight + outerRng * 1.5)
-          } else if (side === 2) {
-            // top
-            tx = cx + (Math.random() - 0.5) * (puzzleWidth + outerRng * 1.5)
-            ty = cy - halfH - innerPad - Math.random() * outerRng
-          } else {
-            // bottom
-            tx = cx + (Math.random() - 0.5) * (puzzleWidth + outerRng * 1.5)
-            ty = cy + halfH + innerPad + Math.random() * outerRng
-          }
-          tries++
-        } while (
-          tries < 40 &&
-          (Math.abs(tx - cx) < halfW + innerPad - 10 &&
-           Math.abs(ty - cy) < halfH + innerPad - 10)
-        )
-        setTileGridCenter(tile, new paper.Point(tx, ty))
+          if      (side === 0) { tx = cx - ASSEMBLY_W/2 - 30 - Math.random()*(hw - ASSEMBLY_W/2); ty = cy + (Math.random()-.5)*SCATTER_H }
+          else if (side === 1) { tx = cx + ASSEMBLY_W/2 + 30 + Math.random()*(hw - ASSEMBLY_W/2); ty = cy + (Math.random()-.5)*SCATTER_H }
+          else if (side === 2) { tx = cx + (Math.random()-.5)*SCATTER_W; ty = cy - ASSEMBLY_H/2 - 30 - Math.random()*(hh - ASSEMBLY_H/2) }
+          else                 { tx = cx + (Math.random()-.5)*SCATTER_W; ty = cy + ASSEMBLY_H/2 + 30 + Math.random()*(hh - ASSEMBLY_H/2) }
+          att++
+        } while (att < 50 && Math.abs(tx-cx) < ASSEMBLY_W/2+20 && Math.abs(ty-cy) < ASSEMBLY_H/2+20)
+        setCenter(tile, new paper.Point(tx, ty))
       })
+      paper.view.draw()
     }
+    doScatter()
+    game.scatter = doScatter
 
-    doScatter(game.tiles)
-
-    // ── Gather group ───────────────────────────────────────────────────────
+    // Gather group
     const gatherGroup = (anchor: any) => {
-      const anchorCenter = getTileGridCenter(anchor)
-      for (const piece of anchor.pieceGroup) {
-        if (piece === anchor) continue
-        const gridOffset = piece.gridPosition.subtract(anchor.gridPosition).multiply(tileWidth)
-        setTileGridCenter(piece, anchorCenter.add(gridOffset))
+      const ac = getCenter(anchor)
+      for (const p of anchor.pieceGroup) {
+        if (p === anchor) continue
+        const off = p.gridPosition.subtract(anchor.gridPosition).multiply(new paper.Point(tileW, tileH))
+        setCenter(p, ac.add(off))
       }
       paper.view.draw()
     }
 
-    // ── Scatter button ─────────────────────────────────────────────────────
-    game.scatter = () => {
-      const seen = new Set<any[]>()
-      game.tiles.forEach((t: any) => seen.add(t.pieceGroup))
-      const groups: any[] = []
-      seen.forEach(g => groups.push(g))
-      // For each group, scatter the anchor and then gather
-      const anchors = groups.map(g => g[0])
-      doScatter(anchors)
-      groups.forEach(g => {
-        if (g.length > 1) gatherGroup(g[0])
-      })
-      paper.view.draw()
-    }
-
-    // ── Try connect ────────────────────────────────────────────────────────
+    // Try connect
     const tryConnect = () => {
       if (!game.selectedTile) return
-      const snapThreshold = tileWidth / 9
+      const thresh = Math.min(tileW, tileH) / 8
       const toConnect: any[] = []
-
       for (const tile of game.selectedTile.pieceGroup) {
-        const tileCenter = getTileGridCenter(tile)
-        for (const {dx,dy} of [{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}]) {
-          const neighbor = game.tiles.find((t: any) =>
-            t.gridPosition.x === tile.gridPosition.x + dx &&
-            t.gridPosition.y === tile.gridPosition.y + dy
-          )
-          if (!neighbor || tile.pieceGroup.includes(neighbor)) continue
-          const expected = tileCenter.add(new paper.Point(dx*tileWidth, dy*tileWidth))
-          const actual   = getTileGridCenter(neighbor)
-          const dist     = Math.abs(expected.x-actual.x) + Math.abs(expected.y-actual.y)
-          if (dist < snapThreshold && !toConnect.includes(neighbor)) toConnect.push(neighbor)
+        const tc = getCenter(tile)
+        for (const {dx, dy} of [{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}]) {
+          const nb = game.tiles.find((t: any) => t.gridPosition.x === tile.gridPosition.x+dx && t.gridPosition.y === tile.gridPosition.y+dy)
+          if (!nb || tile.pieceGroup.includes(nb)) continue
+          const exp  = tc.add(new paper.Point(dx*tileW, dy*tileH))
+          const dist = Math.abs(exp.x - getCenter(nb).x) + Math.abs(exp.y - getCenter(nb).y)
+          if (dist < thresh && !toConnect.includes(nb)) toConnect.push(nb)
         }
       }
-
-      if (toConnect.length > 0) {
-        const newGroup = [...game.selectedTile.pieceGroup]
-        toConnect.forEach(t => newGroup.push(...t.pieceGroup))
-        const unique = Array.from(new Set(newGroup))
-        unique.forEach((p: any) => (p.pieceGroup = unique))
+      if (toConnect.length) {
+        const newG   = [...game.selectedTile.pieceGroup]
+        toConnect.forEach(t => newG.push(...t.pieceGroup))
+        const unique = Array.from(new Set(newG)) as any[]
+        unique.forEach((p: any) => p.pieceGroup = unique)
         gatherGroup(game.selectedTile)
         if (unique.length === game.tiles.length) { setComplete(true); game.complete = true }
       }
     }
 
-    // ── Mouse events ───────────────────────────────────────────────────────
+    // ── Mouse tool ──────────────────────────────────────────────────────────
     const tool = new paper.Tool()
+    game.tool  = tool
 
-    tool.onMouseDown = (event: any) => {
+    tool.onMouseDown = (e: any) => {
       if (game.complete) return
-      const hit = scope.hitTest(event.point, { fill: true, tolerance: 15 })
+      const hit = scope.hitTest(e.point, { fill: true, tolerance: 15 })
       if (hit?.item) {
-        let tile = hit.item
-        while (tile && !tile.gridPosition && tile.parent) tile = tile.parent
-        if (tile?.gridPosition) {
-          game.selectedTile = tile
-          game.dragging     = true
-          game.lastPoint    = event.point
-          game.zIndex++
-          tile.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
+        let t = hit.item
+        while (t && !t.gridPosition && t.parent) t = t.parent
+        if (t?.gridPosition) {
+          game.selectedTile = t; game.dragging = true; game.lastPoint = e.point
+          game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
           return
         }
       }
-      game.panning   = true
-      game.lastPoint = event.point
+      game.panning = true; game.lastPoint = e.point
     }
 
-    tool.onMouseDrag = (event: any) => {
+    tool.onMouseDrag = (e: any) => {
       if (game.dragging && game.selectedTile) {
-        const delta = event.point.subtract(game.lastPoint)
-        game.selectedTile.pieceGroup.forEach((p: any) => { p.position = p.position.add(delta) })
-        game.lastPoint = event.point
-        paper.view.draw()
+        const d = e.point.subtract(game.lastPoint)
+        game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
+        game.lastPoint = e.point; paper.view.draw()
       } else if (game.panning) {
-        paper.view.translate(event.point.subtract(game.lastPoint))
-        game.lastPoint = event.point
+        // delta in world coords → convert to screen delta
+        const d    = e.point.subtract(game.lastPoint)
+        const s    = viewState.current.scale
+        const rawX = viewState.current.panX + d.x * s
+        const rawY = viewState.current.panY + d.y * s
+        const c    = clampPan(rawX, rawY)
+        viewState.current = { ...viewState.current, panX: c.x, panY: c.y }
+        applyView(); game.lastPoint = e.point
       }
     }
 
     tool.onMouseUp = () => {
-      if (game.dragging && game.selectedTile) tryConnect()
-      game.selectedTile = null
-      game.dragging     = false
-      game.panning      = false
-      game.lastPoint    = null
+      if (game.dragging && game.selectedTile) { tryConnect(); game.selectedTile = null }
+      game.dragging = false; game.panning = false; game.lastPoint = null
     }
 
-    // ── Wheel zoom ─────────────────────────────────────────────────────────
-    const onWheel = (e: WheelEvent) => {
+    // ── Touch ───────────────────────────────────────────────────────────────
+    let lastT: Touch[] = [], lpd = 0, lmx = 0, lmy = 0
+    let tDragPiece = false, tPan = false
+
+    const toWorld = (t: Touch) => {
+      const r = canvas.getBoundingClientRect()
+      return paper.view.viewToProject(new paper.Point(
+        (t.clientX - r.left) * (WORLD_W / r.width),
+        (t.clientY - r.top)  * (WORLD_H / r.height),
+      ))
+    }
+
+    canvas.addEventListener('touchstart', (e: TouchEvent) => {
       e.preventDefault()
-      const factor     = e.deltaY > 0 ? 0.9 : 1.1
-      const mouseWorld = paper.view.viewToProject(new paper.Point(e.offsetX, e.offsetY))
-      paper.view.scale(factor, mouseWorld)
-    }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-
-    // ── Touch events ───────────────────────────────────────────────────────
-    let activeTouches: Touch[]     = []
-    let lastPinchDist              = 0
-    let lastTouchPoint: any        = null
-    let touchDraggingTile: any     = null
-    let touchPanning               = false
-
-    const getTouchWorldPt = (touch: Touch) => {
-      const rect   = canvas.getBoundingClientRect()
-      const scaleX = canvas.width  / rect.width
-      const scaleY = canvas.height / rect.height
-      return paper.view.viewToProject(new paper.Point((touch.clientX-rect.left)*scaleX, (touch.clientY-rect.top)*scaleY))
-    }
-    const pinchDist = (t1: Touch, t2: Touch) => {
-      const dx = t1.clientX-t2.clientX; const dy = t1.clientY-t2.clientY
-      return Math.sqrt(dx*dx+dy*dy)
-    }
-    const tryConnectTile = (tile: any) => { game.selectedTile = tile; tryConnect(); game.selectedTile = null }
-
-    const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault()
-      activeTouches = Array.from(e.touches)
-      if (activeTouches.length === 1) {
-        const pt  = getTouchWorldPt(activeTouches[0])
+      const ts = Array.from(e.touches); lastT = ts
+      if (ts.length === 1 && !game.complete) {
+        const pt  = toWorld(ts[0])
         const hit = scope.hitTest(pt, { fill: true, tolerance: 20 })
         if (hit?.item) {
-          let tile = hit.item
-          while (tile && !tile.gridPosition && tile.parent) tile = tile.parent
-          if (tile?.gridPosition) {
-            touchDraggingTile = tile; game.zIndex++
-            tile.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
-            lastTouchPoint = pt; return
+          let t = hit.item
+          while (t && !t.gridPosition && t.parent) t = t.parent
+          if (t?.gridPosition) {
+            game.selectedTile = t; tDragPiece = true; game.lastPoint = pt
+            game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
+            return
           }
         }
-        touchPanning = true; lastTouchPoint = pt
-      } else if (activeTouches.length === 2) {
-        if (touchDraggingTile) { tryConnectTile(touchDraggingTile); touchDraggingTile = null }
-        touchPanning  = false
-        lastPinchDist = pinchDist(activeTouches[0], activeTouches[1])
-        const mx = (activeTouches[0].clientX+activeTouches[1].clientX)/2
-        const my = (activeTouches[0].clientY+activeTouches[1].clientY)/2
-        const rect = canvas.getBoundingClientRect()
-        lastTouchPoint = new paper.Point((mx-rect.left)*canvas.width/rect.width, (my-rect.top)*canvas.height/rect.height)
+        tPan = true; game.lastPoint = pt
+      } else if (ts.length === 2) {
+        tDragPiece = false; tPan = false
+        lpd = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
+        lmx = (ts[0].clientX+ts[1].clientX)/2; lmy = (ts[0].clientY+ts[1].clientY)/2
       }
-    }
+    }, { passive: false })
 
-    const onTouchMove = (e: TouchEvent) => {
+    canvas.addEventListener('touchmove', (e: TouchEvent) => {
       e.preventDefault()
-      activeTouches = Array.from(e.touches)
-      if (activeTouches.length === 1) {
-        const pt = getTouchWorldPt(activeTouches[0])
-        if (touchDraggingTile && lastTouchPoint) {
-          const delta = pt.subtract(lastTouchPoint)
-          touchDraggingTile.pieceGroup.forEach((p: any) => { p.position = p.position.add(delta) })
-          paper.view.draw()
-        } else if (touchPanning && lastTouchPoint) {
-          paper.view.translate(pt.subtract(lastTouchPoint))
+      const ts = Array.from(e.touches)
+      if (ts.length === 1) {
+        const pt = toWorld(ts[0])
+        if (tDragPiece && game.selectedTile && game.lastPoint) {
+          const d = pt.subtract(game.lastPoint)
+          game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
+          game.lastPoint = pt; paper.view.draw()
+        } else if (tPan && game.lastPoint) {
+          const d    = pt.subtract(game.lastPoint)
+          const s    = viewState.current.scale
+          const rawX = viewState.current.panX + d.x * s
+          const rawY = viewState.current.panY + d.y * s
+          const c    = clampPan(rawX, rawY)
+          viewState.current = { ...viewState.current, panX: c.x, panY: c.y }
+          applyView(); game.lastPoint = pt
         }
-        lastTouchPoint = pt
-      } else if (activeTouches.length === 2) {
-        const dist = pinchDist(activeTouches[0], activeTouches[1])
-        if (lastPinchDist > 0) {
-          const factor = dist / lastPinchDist
-          const mx     = (activeTouches[0].clientX+activeTouches[1].clientX)/2
-          const my     = (activeTouches[0].clientY+activeTouches[1].clientY)/2
-          const rect   = canvas.getBoundingClientRect()
-          const midView  = new paper.Point((mx-rect.left)*canvas.width/rect.width, (my-rect.top)*canvas.height/rect.height)
-          const midWorld = paper.view.viewToProject(midView)
-          paper.view.scale(factor, midWorld)
-          lastTouchPoint = midView
+      } else if (ts.length === 2) {
+        const d    = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
+        const mx   = (ts[0].clientX+ts[1].clientX)/2
+        const my   = (ts[0].clientY+ts[1].clientY)/2
+        if (lpd > 0) {
+          const ns   = Math.max(MIN_ZOOM, Math.min(getMaxZoom(), viewState.current.scale * d/lpd))
+          const sf   = ns / viewState.current.scale
+          const rawX = mx - (mx - viewState.current.panX)*sf + (mx - lmx)
+          const rawY = my - (my - viewState.current.panY)*sf + (my - lmy)
+          const c    = clampPan(rawX, rawY, ns)
+          viewState.current = { panX: c.x, panY: c.y, scale: ns }; applyView()
         }
-        lastPinchDist = dist
-        paper.view.draw()
+        lpd = d; lmx = mx; lmy = my
       }
-    }
+      lastT = ts
+    }, { passive: false })
 
-    const onTouchEnd = (e: TouchEvent) => {
+    canvas.addEventListener('touchend', (e: TouchEvent) => {
+      const ts = Array.from(e.touches)
+      if (ts.length === 0) {
+        if (tDragPiece && game.selectedTile) { tryConnect(); game.selectedTile = null }
+        tDragPiece = false; tPan = false; game.lastPoint = null; lpd = 0
+      }
+      lastT = ts
+    }, { passive: false })
+
+    // Wheel zoom
+    canvas.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault()
-      activeTouches = Array.from(e.touches)
-      if (activeTouches.length < 2) lastPinchDist = 0
-      if (activeTouches.length === 0) {
-        if (touchDraggingTile) tryConnectTile(touchDraggingTile)
-        touchDraggingTile = null; touchPanning = false; lastTouchPoint = null
-      }
-    }
-
-    canvas.addEventListener('touchstart',  onTouchStart,  { passive: false })
-    canvas.addEventListener('touchmove',   onTouchMove,   { passive: false })
-    canvas.addEventListener('touchend',    onTouchEnd,    { passive: false })
-    canvas.addEventListener('touchcancel', onTouchEnd,    { passive: false })
-
-    wheelCleanup.current = () => canvas.removeEventListener('wheel', onWheel)
-    touchCleanup.current = () => {
-      canvas.removeEventListener('touchstart',  onTouchStart)
-      canvas.removeEventListener('touchmove',   onTouchMove)
-      canvas.removeEventListener('touchend',    onTouchEnd)
-      canvas.removeEventListener('touchcancel', onTouchEnd)
-    }
+      const ns   = Math.max(MIN_ZOOM, Math.min(getMaxZoom(), viewState.current.scale * (e.deltaY > 0 ? 0.92 : 1.08)))
+      const r    = canvas.getBoundingClientRect()
+      const mx   = e.clientX - r.left
+      const my   = e.clientY - r.top
+      const sf   = ns / viewState.current.scale
+      const c    = clampPan(mx-(mx-viewState.current.panX)*sf, my-(my-viewState.current.panY)*sf, ns)
+      viewState.current = { panX: c.x, panY: c.y, scale: ns }; applyView()
+    }, { passive: false })
 
     gameRef.current = game
 
-    // Initial view: fit the whole world on screen
-    const cW = canvas.clientWidth  || 390
-    const cH = canvas.clientHeight || 680
-    paper.view.zoom   = Math.min(cW / WORLD_W, cH / WORLD_H)
-    paper.view.center = boardCenter
+    // Center and render after layout
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      centerAssembly(INIT_SCALE)
+      applyView()
+      paper.view.draw()
+    }))
+  }, [clampPan, applyView, centerAssembly, getMaxZoom])
 
-    paper.view.draw()
-  }, [])
+  // ── Toolbar actions ────────────────────────────────────────────────────────
+  const handleScatter = () => gameRef.current?.scatter?.()
 
-  // ── Overlay controls ───────────────────────────────────────────────────────
-  const zoomBy = (factor: number) => {
-    if (!window.paper) return
-    window.paper.view.scale(factor, window.paper.view.center)
+  const handleFit = () => { centerAssembly(INIT_SCALE); applyView() }
+
+  const handleZoom = (dir: 1 | -1) => {
+    const ns   = Math.max(MIN_ZOOM, Math.min(getMaxZoom(), viewState.current.scale * (dir > 0 ? 1.15 : 0.87)))
+    const u    = getUsable()
+    const cx   = u.x + u.w / 2, cy = u.y + u.h / 2
+    const sf   = ns / viewState.current.scale
+    const c    = clampPan(cx-(cx-viewState.current.panX)*sf, cy-(cy-viewState.current.panY)*sf, ns)
+    viewState.current = { panX: c.x, panY: c.y, scale: ns }; applyView()
   }
 
-  const centerView = () => {
-    if (!window.paper || !gameRef.current) return
-    const p = window.paper
-    const { boardCenter } = gameRef.current
-    const cW = canvasRef.current?.clientWidth  || 390
-    const cH = canvasRef.current?.clientHeight || 680
-    p.view.zoom   = Math.min(cW / WORLD_W, cH / WORLD_H)
-    p.view.center = boardCenter
+  const handleDiff = (cols: number, rows: number) => {
+    setNumCols(cols); setNumRows(rows); setShowDiff(false); setComplete(false)
+    if (image) setTimeout(() => initPuzzle(image, cols, rows), 50)
   }
 
-  const scatterPieces = () => { if (gameRef.current?.scatter) gameRef.current.scatter() }
+  const handleImageLoad = (img: HTMLImageElement, src: string) => {
+    setImage(img); setImageSrc(src); setComplete(false)
+    setTimeout(() => initPuzzle(img, numCols, numRows), 100)
+  }
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
-    const src  = URL.createObjectURL(file)
-    const img  = new Image()
-    img.onload = () => { setImageSrc(src); setImage(img); setComplete(false); setTimeout(() => initPuzzle(img, numColsRef.current, numRowsRef.current), 100) }
-    img.src = src
+    const url = URL.createObjectURL(file)
+    const img = new Image(); img.onload = () => handleImageLoad(img, url); img.src = url
   }
 
-  const loadSampleImage = (url: string) => {
+  const handleSample = (url: string) => {
     const img = new Image(); img.crossOrigin = 'anonymous'
-    img.onload = () => { setImageSrc(url); setImage(img); setComplete(false); setTimeout(() => initPuzzle(img, numColsRef.current, numRowsRef.current), 100) }
-    img.src = url
+    img.onload = () => handleImageLoad(img, url); img.src = url
   }
 
-  const changeDifficulty = (cols: number, rows: number) => {
-    setNumCols(cols); setNumRows(rows); setShowDiffMenu(false)
-    if (image) { setComplete(false); setTimeout(() => initPuzzle(image, cols, rows), 50) }
+  useEffect(() => { if (paperLoaded && image) initPuzzle(image, numCols, numRows) }, [paperLoaded])
+
+  const btn: React.CSSProperties = {
+    width: 38, height: 38, borderRadius: 10,
+    background: 'rgba(168,85,247,0.15)',
+    border: '1px solid rgba(168,85,247,0.35)',
+    color: '#c084fc', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0,
   }
 
-  useEffect(() => {
-    if (paperLoaded && image) initPuzzle(image, numColsRef.current, numRowsRef.current)
-  }, [paperLoaded])
-
-  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <Script
-        src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
-        onLoad={() => setPaperLoaded(true)}
-      />
+      <Script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js" onLoad={() => setPaperLoaded(true)} />
 
-      <div className="fixed inset-0 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1423 0%, #2d1b3d 50%, #1a1423 100%)' }}>
-        <div className="absolute inset-0 pointer-events-none opacity-20">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, #a855f7, transparent)' }} />
-          <div className="absolute bottom-1/4 right-1/4 w-64 h-64 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, #6d28d9, transparent)' }} />
-        </div>
+      <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', overflow: 'hidden', fontFamily: 'ui-sans-serif,system-ui,sans-serif' }}>
 
-        {/* ── SETUP SCREEN ─────────────────────────────────────────────────── */}
-        {!image ? (
-          <div className="relative z-10 flex items-center justify-center min-h-full p-4 overflow-y-auto">
-            <div className="max-w-2xl w-full space-y-5 py-8">
-              <div className="text-center">
-                <h1 className="text-5xl font-bold mb-1"
-                  style={{ fontFamily: 'Cinzel, serif', background: 'linear-gradient(135deg, #a855f7, #6d28d9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.1em' }}>
-                  JIGSAW
-                </h1>
-                <p className="text-xs tracking-widest uppercase text-purple-400 opacity-70">Virtual Table Puzzle</p>
-              </div>
+        {/* ── Setup ── */}
+        {!image && (
+          <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '40px 20px 40px' }}>
+            <div style={{ maxWidth: 480, margin: '0 auto' }}>
+              <h1 style={{ textAlign: 'center', fontSize: 38, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em', marginBottom: 4 }}>JIGSAW</h1>
+              <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: 12, marginBottom: 28, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pick an image to start</p>
 
-              <label className="block p-8 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:border-purple-400"
-                style={{ borderColor: 'rgba(168,85,247,0.35)', background: 'rgba(168,85,247,0.05)' }}>
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                <div className="text-center">
-                  <Upload size={36} className="mx-auto mb-2 text-purple-400" />
-                  <p className="text-base font-semibold text-white">Upload Your Image</p>
-                  <p className="text-xs text-gray-400 mt-1">Tap to choose a photo from your device</p>
-                </div>
+              <label style={{ display: 'block', padding: '30px 20px', borderRadius: 16, border: '2px dashed rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.05)', cursor: 'pointer', textAlign: 'center', marginBottom: 18 }}>
+                <input type="file" accept="image/*" onChange={handleUpload} style={{ display: 'none' }} />
+                <Upload size={36} style={{ color: '#a855f7', margin: '0 auto 10px', display: 'block' }} />
+                <p style={{ color: '#e9d5ff', fontWeight: 600, marginBottom: 4 }}>Upload your own image</p>
+                <p style={{ color: '#9ca3af', fontSize: 12 }}>Tap to select a photo</p>
               </label>
 
-              <div>
-                <p className="text-center text-xs text-purple-300 mb-2 uppercase tracking-widest">Or choose a sample</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {SAMPLE_IMAGES.map((s, i) => (
-                    <button key={i} onClick={() => loadSampleImage(s.url)}
-                      className="group relative aspect-video rounded-xl overflow-hidden border-2 border-transparent hover:border-purple-400 transition-all">
-                      <img src={s.url} alt={s.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
-                      <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <p className="text-white text-xs font-bold">{s.name}</p>
-                      </div>
+              <p style={{ color: '#a78bfa', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>Or pick a sample:</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
+                {SAMPLE_IMAGES.map((s, i) => (
+                  <button key={i} onClick={() => handleSample(s.url)} style={{ position: 'relative', aspectRatio: '16/10', borderRadius: 10, overflow: 'hidden', border: '2px solid rgba(168,85,247,0.3)', cursor: 'pointer', padding: 0, background: 'none' }}>
+                    <img src={s.url} alt={s.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '3px 8px', background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 11, textAlign: 'center' }}>{s.name}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(168,85,247,0.07)', border: '1px solid rgba(168,85,247,0.22)' }}>
+                <p style={{ color: '#a78bfa', fontSize: 12, marginBottom: 10 }}>Difficulty</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+                  {DIFFICULTIES.map(d => (
+                    <button key={d.label} onClick={() => { setNumCols(d.cols); setNumRows(d.rows) }}
+                      style={{ padding: '8px 4px', borderRadius: 8, border: `1px solid ${numCols===d.cols ? 'rgba(168,85,247,0.8)' : 'rgba(168,85,247,0.25)'}`, background: numCols===d.cols ? 'rgba(168,85,247,0.3)' : 'transparent', color: '#e9d5ff', fontSize: 12, cursor: 'pointer', fontWeight: numCols===d.cols ? 700 : 400 }}>
+                      {d.label}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>{d.cols*d.rows}pc</span>
                     </button>
                   ))}
                 </div>
               </div>
-
-              <div className="p-4 rounded-xl" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.3)' }}>
-                <p className="text-xs text-purple-300 mb-2 uppercase tracking-widest">Difficulty</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {DIFFICULTIES.map(d => {
-                    const active = `${numCols}x${numRows}` === d.value
-                    return (
-                      <button key={d.value}
-                        onClick={() => { const [c,r] = d.value.split('x').map(Number); setNumCols(c); setNumRows(r) }}
-                        className="py-2 px-3 rounded-lg text-sm font-semibold transition-all"
-                        style={{
-                          background: active ? 'rgba(168,85,247,0.4)' : 'rgba(168,85,247,0.1)',
-                          border: `1px solid ${active ? 'rgba(168,85,247,0.8)' : 'rgba(168,85,247,0.3)'}`,
-                          color: 'white'
-                        }}>
-                        <span className="block">{d.label}</span>
-                        <span className="block text-xs opacity-60">{d.pieces} pcs</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
             </div>
           </div>
+        )}
 
-        ) : (
-          /* ── GAME SCREEN ───────────────────────────────────────────────── */
-          <div className="relative w-full h-full" style={{ touchAction: 'none' }}>
+        {/* ── Game ── */}
+        {image && (
+          <>
+            <canvas ref={canvasRef} id="jigsaw-canvas"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', touchAction: 'none' }} />
 
-            {/* Canvas fills everything */}
-            <div ref={containerRef} className="absolute inset-0" style={{ touchAction: 'none' }}>
-              <canvas ref={canvasRef} id="jigsaw-canvas"
-                style={{ display: 'block', width: '100%', height: '100%', touchAction: 'none' }} />
+            {/* Navbar */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: NAVBAR_H, background: 'rgba(14,9,23,0.96)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
+              <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
+              <span style={{ fontSize: 11, color: '#a78bfa' }}>{numCols}×{numRows} · {numCols*numRows}pc</span>
+              <button onClick={() => setImage(null)} style={{ ...btn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
             </div>
 
-            {/* ── OVERLAY HUD ────────────────────────────────────────────── */}
-
-            {/* Title — top left */}
-            <div className="absolute top-3 left-3 z-20 pointer-events-none select-none">
-              <p className="text-purple-300 font-bold text-lg tracking-widest leading-none"
-                style={{ fontFamily: 'Cinzel, serif', textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
-                JIGSAW
-              </p>
-              <p className="text-purple-400 text-xs opacity-60">{numCols}×{numRows} · {numCols*numRows} pieces</p>
-            </div>
-
-            {/* New Game — top right */}
-            <div className="absolute top-3 right-3 z-20">
-              <button onClick={() => setImage(null)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white transition-all active:scale-95"
-                style={{ background: 'rgba(18,12,28,0.88)', border: '1px solid rgba(168,85,247,0.4)', backdropFilter: 'blur(10px)' }}>
-                <ImageIcon size={13} /> New Game
-              </button>
-            </div>
-
-            {/* Hint — top center */}
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none">
-              <p className="text-xs text-purple-400 opacity-45 whitespace-nowrap"
-                style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-                Drag piece · 2-finger pinch to zoom
-              </p>
-            </div>
-
-            {/* Bottom toolbar */}
-            <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-20">
-              <div className="flex items-center gap-1 px-2 py-2 rounded-2xl"
-                style={{ background: 'rgba(14,9,23,0.92)', border: '1px solid rgba(168,85,247,0.35)', backdropFilter: 'blur(14px)', boxShadow: '0 4px 28px rgba(0,0,0,0.6)' }}>
-
-                {/* Scatter */}
-                <HudBtn onClick={scatterPieces} title="Scatter pieces">
-                  <Sparkles size={17} />
-                </HudBtn>
-
-                {/* Preview */}
-                <HudBtn onClick={() => setShowPreview(true)} title="Preview image">
-                  <Eye size={17} />
-                </HudBtn>
-
-                <Divider />
-
-                {/* Piece count / difficulty */}
-                <div className="relative">
-                  <HudBtn onClick={() => setShowDiffMenu(v => !v)} title="Change pieces">
-                    <Grid3x3 size={16} />
-                  </HudBtn>
-                  <AnimatePresence>
-                    {showDiffMenu && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.95 }}
-                        className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 rounded-xl overflow-hidden z-30"
-                        style={{ background: 'rgba(14,9,23,0.97)', border: '1px solid rgba(168,85,247,0.45)', backdropFilter: 'blur(14px)', minWidth: 138 }}>
-                        {DIFFICULTIES.map(d => {
-                          const [c,r] = d.value.split('x').map(Number)
-                          const active = numCols === c && numRows === r
-                          return (
-                            <button key={d.value} onClick={() => changeDifficulty(c, r)}
-                              className="w-full px-4 py-2.5 text-left text-sm flex items-center justify-between gap-4 transition-colors"
-                              style={{ color: active ? '#c084fc' : '#d1d5db', background: active ? 'rgba(168,85,247,0.18)' : 'transparent' }}>
-                              <span className="font-medium">{d.label}</span>
-                              <span className="text-xs opacity-50">{d.pieces}pcs</span>
-                            </button>
-                          )
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* Reset */}
-                <HudBtn onClick={() => { setComplete(false); initPuzzle(image!, numCols, numRows) }} title="Reset puzzle">
-                  <RotateCcw size={16} />
-                </HudBtn>
-
-                <Divider />
-
-                {/* Zoom out */}
-                <HudBtn onClick={() => zoomBy(0.8)} title="Zoom out">
-                  <ZoomOut size={17} />
-                </HudBtn>
-
-                {/* Center / fit */}
-                <HudBtn onClick={centerView} title="Fit to screen">
-                  <Maximize2 size={16} />
-                </HudBtn>
-
-                {/* Zoom in */}
-                <HudBtn onClick={() => zoomBy(1.25)} title="Zoom in">
-                  <ZoomIn size={17} />
-                </HudBtn>
+            {/* Toolbar */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: TOOLBAR_H, background: 'rgba(14,9,23,0.96)', borderTop: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0 10px', zIndex: 30 }}>
+              <button style={btn} onClick={handleScatter}><Sparkles size={17} /></button>
+              <button style={btn} onClick={() => setShowPreview(true)}><Eye size={17} /></button>
+              <div style={{ width: 1, height: 22, background: 'rgba(168,85,247,0.3)' }} />
+              <div style={{ position: 'relative' }}>
+                <button style={btn} onClick={() => setShowDiff(d => !d)}><Grid3X3 size={17} /></button>
+                {showDiff && (
+                  <div style={{ position: 'absolute', bottom: 46, left: '50%', transform: 'translateX(-50%)', background: 'rgba(14,9,23,0.97)', border: '1px solid rgba(168,85,247,0.5)', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130, zIndex: 50 }}>
+                    {DIFFICULTIES.map(d => (
+                      <button key={d.label} onClick={() => handleDiff(d.cols, d.rows)}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: numCols===d.cols ? 'rgba(168,85,247,0.35)' : 'transparent', color: '#e9d5ff', fontSize: 13, cursor: 'pointer', textAlign: 'left', fontWeight: numCols===d.cols ? 700 : 400 }}>
+                        {d.label} <span style={{ opacity: 0.55, fontSize: 11 }}>({d.cols*d.rows}pc)</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+              <button style={btn} onClick={() => { setComplete(false); if (image) initPuzzle(image, numCols, numRows) }}><RotateCcw size={17} /></button>
+              <div style={{ width: 1, height: 22, background: 'rgba(168,85,247,0.3)' }} />
+              <button style={btn} onClick={() => handleZoom(-1)}><Minus size={17} /></button>
+              <button style={btn} onClick={handleFit}><Maximize2 size={15} /></button>
+              <button style={btn} onClick={() => handleZoom(1)}><Plus size={17} /></button>
             </div>
 
-            {/* ── PREVIEW MODAL ───────────────────────────────────────────── */}
+            {/* Preview modal */}
             <AnimatePresence>
               {showPreview && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-40 flex items-center justify-center p-6"
-                  style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(5px)' }}
-                  onClick={() => setShowPreview(false)}>
-                  <motion.div initial={{ scale: 0.88 }} animate={{ scale: 1 }} exit={{ scale: 0.88 }}
-                    className="rounded-2xl overflow-hidden shadow-2xl w-full max-w-sm"
-                    style={{ border: '2px solid rgba(168,85,247,0.55)' }}
-                    onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-between px-4 py-2.5"
-                      style={{ background: 'rgba(18,12,28,0.98)' }}>
-                      <p className="text-purple-300 text-sm font-semibold tracking-wide">Reference</p>
-                      <button onClick={() => setShowPreview(false)}
-                        className="text-purple-400 hover:text-white text-xl leading-none w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
-                        style={{ background: 'rgba(168,85,247,0.15)' }}>
-                        ✕
-                      </button>
+                  onClick={() => setShowPreview(false)}
+                  style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                  <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ background: 'rgba(14,9,23,0.98)', borderRadius: 16, border: '1px solid rgba(168,85,247,0.5)', padding: 12, maxWidth: 360, width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ color: '#c084fc', fontWeight: 700, fontSize: 14 }}>Reference</span>
+                      <button onClick={() => setShowPreview(false)} style={{ ...btn, width: 28, height: 28 }}><X size={14} /></button>
                     </div>
-                    <img src={imageSrc} alt="Puzzle reference" className="w-full object-cover block" style={{ maxHeight: '65vh' }} />
+                    <img src={imageSrc} alt="Reference" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
                   </motion.div>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* ── COMPLETION ─────────────────────────────────────────────── */}
+            {/* Completion */}
             <AnimatePresence>
               {complete && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-30 flex items-center justify-center"
-                  style={{ background: 'rgba(0,0,0,0.58)', backdropFilter: 'blur(4px)' }}>
-                  <motion.div initial={{ scale: 0.8, y: 24 }} animate={{ scale: 1, y: 0 }}
-                    className="text-center px-10 py-8 rounded-2xl shadow-2xl"
-                    style={{ background: 'rgba(22,14,36,0.98)', border: '2px solid rgba(168,85,247,0.6)' }}>
-                    <CheckCircle size={52} className="mx-auto mb-3 text-purple-400" />
-                    <p className="text-3xl font-bold text-white mb-1" style={{ fontFamily: 'Cinzel, serif' }}>
-                      Puzzle Complete!
-                    </p>
-                    <p className="text-purple-300 text-sm mb-6">All {numCols*numRows} pieces connected</p>
-                    <div className="flex gap-3 justify-center">
-                      <button onClick={() => { setComplete(false); initPuzzle(image!, numCols, numRows) }}
-                        className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                        style={{ background: 'linear-gradient(135deg, #a855f7, #6d28d9)' }}>
-                        Play Again
-                      </button>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <motion.div initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }}
+                    style={{ background: 'rgba(14,9,23,0.98)', borderRadius: 20, border: '2px solid rgba(168,85,247,0.6)', padding: 32, textAlign: 'center', maxWidth: 300, width: '90%' }}>
+                    <CheckCircle size={52} style={{ color: '#a855f7', margin: '0 auto 12px', display: 'block' }} />
+                    <p style={{ color: '#fff', fontSize: 22, fontWeight: 800, marginBottom: 6 }}>Puzzle Complete!</p>
+                    <p style={{ color: '#a78bfa', fontSize: 13, marginBottom: 24 }}>All {numCols*numRows} pieces connected</p>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button onClick={() => { setComplete(false); if (image) initPuzzle(image, numCols, numRows) }}
+                        style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: '1px solid rgba(168,85,247,0.5)', background: 'rgba(168,85,247,0.2)', color: '#e9d5ff', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>Play Again</button>
                       <button onClick={() => setImage(null)}
-                        className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                        style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)' }}>
-                        New Game
-                      </button>
+                        style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: '1px solid rgba(168,85,247,0.7)', background: 'rgba(168,85,247,0.4)', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>New Game</button>
                     </div>
                   </motion.div>
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </>
         )}
       </div>
     </>
   )
-}
-
-// ── Shared small components ────────────────────────────────────────────────────
-function HudBtn({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} title={title}
-      className="w-10 h-10 rounded-xl flex items-center justify-center text-purple-300 transition-all active:scale-90 hover:text-white hover:bg-purple-500/20 select-none">
-      {children}
-    </button>
-  )
-}
-
-function Divider() {
-  return <div className="w-px h-6 mx-0.5 flex-shrink-0" style={{ background: 'rgba(168,85,247,0.22)' }} />
 }
