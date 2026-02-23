@@ -52,6 +52,7 @@ export default function JigsawPage() {
 
     paper.setup(canvas)
     paper.view.viewSize = new paper.Size(WORLD_W, WORLD_H)
+    paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
     const scope = paper.project
 
     const tileWidth   = 100
@@ -186,22 +187,23 @@ export default function JigsawPage() {
       const pad = 80  // gap between assembly edge and nearest scatter position
 
       const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
+      const maxSpread = 50  // pieces land within 50px beyond assembly edge
       shuffled.forEach((tile: any) => {
         let tx: number, ty: number, attempts = 0
         do {
           const side = Math.floor(Math.random() * 4)
           if      (side === 0) { // left
-            tx = cx - hw - pad - Math.random() * 500
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
+            tx = cx - hw - pad - Math.random() * maxSpread
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
           } else if (side === 1) { // right
-            tx = cx + hw + pad + Math.random() * 500
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
+            tx = cx + hw + pad + Math.random() * maxSpread
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
           } else if (side === 2) { // top
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
-            ty = cy - hh - pad - Math.random() * 400
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
+            ty = cy - hh - pad - Math.random() * maxSpread
           } else {               // bottom
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
-            ty = cy + hh + pad + Math.random() * 400
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
+            ty = cy + hh + pad + Math.random() * maxSpread
           }
           attempts++
         } while (
