@@ -52,7 +52,6 @@ export default function JigsawPage() {
 
     paper.setup(canvas)
     paper.view.viewSize = new paper.Size(WORLD_W, WORLD_H)
-    paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
     const scope = paper.project
 
     const tileWidth   = 100
@@ -298,10 +297,11 @@ export default function JigsawPage() {
     let tDragPiece = false, tPanning = false
 
     const touchToWorld = (t: Touch) => {
-      const r  = canvas.getBoundingClientRect()
-      const sx = WORLD_W / r.width
-      const sy = WORLD_H / r.height
-      return paper.view.viewToProject(new paper.Point((t.clientX - r.left)*sx, (t.clientY - r.top)*sy))
+      const r   = canvas.getBoundingClientRect()
+      // Convert CSS coords → canvas pixel coords (accounting for devicePixelRatio / canvas size vs CSS size)
+      const px  = (t.clientX - r.left) * (canvas.width  / r.width)
+      const py  = (t.clientY - r.top)  * (canvas.height / r.height)
+      return paper.view.viewToProject(new paper.Point(px, py))
     }
 
     canvas.addEventListener('touchstart', (e: TouchEvent) => {
@@ -382,6 +382,12 @@ export default function JigsawPage() {
 
     gameRef.current = game
     paper.view.draw()
+
+    // Centre the view on the assembly area after layout settles (double RAF ensures canvas dimensions are ready)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
+      paper.view.draw()
+    }))
   }
 
   // ── UI actions ─────────────────────────────────────────────────────────────
