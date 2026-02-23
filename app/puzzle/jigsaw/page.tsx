@@ -51,7 +51,6 @@ export default function JigsawPage() {
     if (gameRef.current?.scope) gameRef.current.scope.project.clear()
 
     paper.setup(canvas)
-    paper.view.viewSize = new paper.Size(WORLD_W, WORLD_H)
     const scope = paper.project
 
     const tileWidth   = 100
@@ -186,23 +185,22 @@ export default function JigsawPage() {
       const pad = 80  // gap between assembly edge and nearest scatter position
 
       const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
-      const maxSpread = 50  // pieces land within 50px beyond assembly edge
       shuffled.forEach((tile: any) => {
         let tx: number, ty: number, attempts = 0
         do {
           const side = Math.floor(Math.random() * 4)
           if      (side === 0) { // left
-            tx = cx - hw - pad - Math.random() * maxSpread
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
+            tx = cx - hw - pad - Math.random() * 500
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
           } else if (side === 1) { // right
-            tx = cx + hw + pad + Math.random() * maxSpread
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
+            tx = cx + hw + pad + Math.random() * 500
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
           } else if (side === 2) { // top
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
-            ty = cy - hh - pad - Math.random() * maxSpread
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
+            ty = cy - hh - pad - Math.random() * 400
           } else {               // bottom
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
-            ty = cy + hh + pad + Math.random() * maxSpread
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
+            ty = cy + hh + pad + Math.random() * 400
           }
           attempts++
         } while (
@@ -297,10 +295,9 @@ export default function JigsawPage() {
     let tDragPiece = false, tPanning = false
 
     const touchToWorld = (t: Touch) => {
-      const r   = canvas.getBoundingClientRect()
-      // Convert CSS coords → canvas pixel coords (accounting for devicePixelRatio / canvas size vs CSS size)
-      const px  = (t.clientX - r.left) * (canvas.width  / r.width)
-      const py  = (t.clientY - r.top)  * (canvas.height / r.height)
+      const r  = canvas.getBoundingClientRect()
+      const px = (t.clientX - r.left) * (canvas.width  / r.width)
+      const py = (t.clientY - r.top)  * (canvas.height / r.height)
       return paper.view.viewToProject(new paper.Point(px, py))
     }
 
@@ -348,14 +345,15 @@ export default function JigsawPage() {
           const factor = dist / lastPinchDist
           const r      = canvas.getBoundingClientRect()
           const pivot  = paper.view.viewToProject(new paper.Point(
-            (midX - r.left) * (WORLD_W / r.width),
-            (midY - r.top)  * (WORLD_H / r.height)
+            (midX - r.left) * (canvas.width  / r.width),
+            (midY - r.top)  * (canvas.height / r.height)
           ))
           paper.view.scale(factor, pivot)
           // pan from mid movement
           const dmx = midX - lastMidX, dmy = midY - lastMidY
           if (Math.abs(dmx) + Math.abs(dmy) > 0) {
-            const dWorld = paper.view.viewToProject(new paper.Point(dmx * (WORLD_W/r.width), dmy * (WORLD_H/r.height)))
+            const scx = canvas.width / r.width, scy = canvas.height / r.height
+            const dWorld = paper.view.viewToProject(new paper.Point(dmx * scx, dmy * scy))
               .subtract(paper.view.viewToProject(new paper.Point(0, 0)))
             paper.view.translate(dWorld)
           }
@@ -383,11 +381,18 @@ export default function JigsawPage() {
     gameRef.current = game
     paper.view.draw()
 
-    // Centre the view on the assembly area after layout settles (double RAF ensures canvas dimensions are ready)
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    // Fit the entire puzzle+scatter area into view, centered on assembly
+    requestAnimationFrame(() => {
+      const vw = canvas.width  / (window.devicePixelRatio || 1)
+      const vh = canvas.height / (window.devicePixelRatio || 1)
+      // Total area to show: assembly + scatter pad on all sides
+      const showW = puzzleWidth  + (80 + 50) * 2   // pad + maxSpread each side
+      const showH = puzzleHeight + (80 + 50) * 2
+      const zoom  = Math.min(vw / showW, vh / showH) * 0.92
+      paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
       paper.view.draw()
-    }))
+    })
   }
 
   // ── UI actions ─────────────────────────────────────────────────────────────
@@ -517,7 +522,7 @@ export default function JigsawPage() {
             <button style={toolBtn} onClick={handleReset} title="Reset"><RotateCcw size={18} /></button>
             <div style={{ width: 1, height: 24, background: 'rgba(168,85,247,0.3)' }} />
             <button style={toolBtn} onClick={() => window.paper?.view.scale(0.87)} title="Zoom out"><Minus size={18} /></button>
-            <button style={toolBtn} onClick={() => { if (window.paper) { window.paper.view.zoom = 1; window.paper.view.center = new window.paper.Point(WORLD_CX, WORLD_CY) } }} title="Fit"><Maximize2 size={16} /></button>
+            <button style={toolBtn} onClick={() => { if (window.paper && canvasRef.current) { const c = canvasRef.current; const vw = c.width/(window.devicePixelRatio||1); const vh = c.height/(window.devicePixelRatio||1); const g = gameRef.current; const showW = g.numCols*g.tileWidth+260; const showH = g.numRows*g.tileWidth+260; window.paper.view.zoom = Math.min(vw/showW, vh/showH)*0.92; window.paper.view.center = new window.paper.Point(WORLD_CX, WORLD_CY) } }} title="Fit"><Maximize2 size={16} /></button>
             <button style={toolBtn} onClick={() => window.paper?.view.scale(1.15)} title="Zoom in"><Plus size={18} /></button>
           </div>
 
