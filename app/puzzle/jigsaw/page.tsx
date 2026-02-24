@@ -54,6 +54,69 @@ export default function JigsawPage() {
     paper.activate()
     const scope = paper.project
 
+    // ── Background: cherry wood table surface drawn in Paper.js ──────────────
+    // Large rect covering entire world — wood base color
+    const woodBase = new paper.Path.Rectangle({
+      point:     new paper.Point(0, 0),
+      size:      new paper.Size(WORLD_W, WORLD_H),
+      fillColor: new paper.Color('#7A3210'),
+    })
+    woodBase.guide = true
+
+    // Draw wood grain lines procedurally via canvas context for realism
+    const woodCanvas = document.createElement('canvas')
+    woodCanvas.width  = WORLD_W
+    woodCanvas.height = WORLD_H
+    const wctx = woodCanvas.getContext('2d')!
+    // Base fill
+    wctx.fillStyle = '#7A3210'
+    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
+    // Grain lines — horizontal wavy streaks
+    const grainColors = ['rgba(100,38,12,0.6)','rgba(160,70,28,0.4)','rgba(60,22,8,0.5)','rgba(180,85,35,0.35)','rgba(120,52,18,0.5)','rgba(90,34,10,0.45)','rgba(200,100,45,0.25)']
+    for (let i = 0; i < 220; i++) {
+      const y0    = Math.random() * WORLD_H
+      const wvy   = (Math.random() - 0.5) * 60
+      const width = 0.5 + Math.random() * 3.5
+      const color = grainColors[Math.floor(Math.random() * grainColors.length)]
+      wctx.beginPath()
+      wctx.moveTo(0, y0)
+      for (let x = 0; x < WORLD_W; x += 80) {
+        const cy1 = y0 + wvy * Math.sin((x / WORLD_W) * Math.PI * (2 + Math.random()))
+        const cy2 = y0 + wvy * Math.cos(((x + 40) / WORLD_W) * Math.PI * 3)
+        wctx.bezierCurveTo(x + 20, cy1, x + 60, cy2, x + 80, y0 + (Math.random() - 0.5) * 8)
+      }
+      wctx.strokeStyle = color
+      wctx.lineWidth   = width
+      wctx.stroke()
+    }
+    // Subtle pore dots
+    for (let i = 0; i < 1800; i++) {
+      const px = Math.random() * WORLD_W, py = Math.random() * WORLD_H
+      wctx.beginPath()
+      wctx.arc(px, py, 0.5 + Math.random() * 1.2, 0, Math.PI * 2)
+      wctx.fillStyle = 'rgba(40,14,4,0.3)'
+      wctx.fill()
+    }
+    // Warm varnish gloss
+    const gloss = wctx.createLinearGradient(0, 0, WORLD_W, WORLD_H)
+    gloss.addColorStop(0,   'rgba(255,200,140,0.08)')
+    gloss.addColorStop(0.4, 'rgba(255,180,100,0.04)')
+    gloss.addColorStop(0.7, 'rgba(200,120,60,0.06)')
+    gloss.addColorStop(1,   'rgba(255,200,140,0.09)')
+    wctx.fillStyle = gloss
+    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
+
+    const woodImg = new Image()
+    woodImg.src = woodCanvas.toDataURL()
+    const woodRaster = new paper.Raster(woodImg)
+    woodRaster.position = new paper.Point(WORLD_W / 2, WORLD_H / 2)
+    woodRaster.size     = new paper.Size(WORLD_W, WORLD_H)
+    woodRaster.guide    = true
+    woodBase.sendToBack()
+    woodRaster.sendToBack()
+    woodBase.sendToBack()
+    // ─────────────────────────────────────────────────────────────────────────
+
     const tileWidth   = 100
     const puzzleWidth  = tileWidth * cols
     const puzzleHeight = tileWidth * rows
@@ -64,17 +127,44 @@ export default function JigsawPage() {
     raster.visible  = false
     raster.size     = new paper.Size(puzzleWidth, puzzleHeight)
 
-    // Assembly zone guide
-    const playArea = new paper.Path.Rectangle({
-      center:      raster.position,
-      size:        [puzzleWidth + 20, puzzleHeight + 20],
-      fillColor:   'rgba(0,0,0,0.18)',
-      strokeColor: 'rgba(168,85,247,0.35)',
-      strokeWidth: 2,
-      dashArray:   [8, 5],
+    // Assembly zone — executive black leather mat
+    const matShadow = new paper.Path.Rectangle({
+      center:      new paper.Point(raster.position.x + 4, raster.position.y + 5),
+      size:        [puzzleWidth + 32, puzzleHeight + 32],
+      fillColor:   new paper.Color(0, 0, 0, 0.45),
     })
-    playArea.guide = true
-    playArea.sendToBack()
+    matShadow.guide = true
+    matShadow.sendToBack()
+
+    const mat = new paper.Path.Rectangle({
+      center:      raster.position,
+      size:        [puzzleWidth + 28, puzzleHeight + 28],
+      fillColor:   new paper.Color(0.06, 0.06, 0.07, 1),
+    })
+    mat.guide = true
+
+    // Subtle stitched border on mat
+    const matBorder = new paper.Path.Rectangle({
+      center:      raster.position,
+      size:        [puzzleWidth + 22, puzzleHeight + 22],
+      fillColor:   null,
+      strokeColor: new paper.Color(0.22, 0.22, 0.24, 0.9),
+      strokeWidth: 1.5,
+      dashArray:   [5, 4],
+    })
+    matBorder.guide = true
+
+    const matHighlight = new paper.Path.Rectangle({
+      center:      raster.position,
+      size:        [puzzleWidth + 28, puzzleHeight + 28],
+      fillColor:   null,
+      strokeColor: new paper.Color(1, 1, 1, 0.06),
+      strokeWidth: 1,
+    })
+    matHighlight.guide = true
+
+    matShadow.sendToBack(); mat.sendToBack(); matBorder.sendToBack(); matHighlight.sendToBack()
+    const playArea = mat
 
     const game: any = {
       scope, tiles: [], selectedTile: null,
@@ -296,10 +386,21 @@ export default function JigsawPage() {
     let lastPinchDist = 0, lastMidX = 0, lastMidY = 0
     let tDragPiece = false, tPanning = false
 
+    // Returns project-space point for hit testing and piece dragging
     const touchToWorld = (t: Touch) => {
-      const r  = canvas.getBoundingClientRect()
-      // Use CSS-pixel offset relative to canvas (same as offsetX/offsetY that Paper.js uses for mouse events)
+      const r = canvas.getBoundingClientRect()
       return paper.view.viewToProject(new paper.Point(t.clientX - r.left, t.clientY - r.top))
+    }
+    // Returns raw CSS-pixel point (for stable delta calculation during pan)
+    const touchToScreen = (t: Touch) => {
+      const r = canvas.getBoundingClientRect()
+      return new paper.Point(t.clientX - r.left, t.clientY - r.top)
+    }
+    // Convert a CSS-pixel delta to project-space delta at current zoom
+    const screenDeltaToWorld = (dx: number, dy: number) => {
+      const a = paper.view.viewToProject(new paper.Point(0, 0))
+      const b = paper.view.viewToProject(new paper.Point(dx, dy))
+      return b.subtract(a)
     }
 
     canvas.addEventListener('touchstart', (e: TouchEvent) => {
@@ -312,12 +413,13 @@ export default function JigsawPage() {
           let t = hit.item
           while (t && !t.gridPosition && t.parent) t = t.parent
           if (t?.gridPosition) {
-            game.selectedTile = t; tDragPiece = true; game.lastPoint = pt
+            game.selectedTile = t; tDragPiece = true
+            game.lastPoint = touchToScreen(ts[0])
             game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
             return
           }
         }
-        tPanning = true; game.lastPoint = pt
+        tPanning = true; game.lastPoint = touchToScreen(ts[0])
       } else if (ts.length === 2) {
         tDragPiece = false; tPanning = false
         lastPinchDist = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
@@ -329,14 +431,15 @@ export default function JigsawPage() {
       e.preventDefault()
       const ts = Array.from(e.touches)
       if (ts.length === 1) {
-        const pt = touchToWorld(ts[0])
+        const screenPt = touchToScreen(ts[0])
         if (tDragPiece && game.selectedTile && game.lastPoint) {
-          const d = pt.subtract(game.lastPoint)
+          const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
           game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
-          game.lastPoint = pt; paper.view.draw()
+          game.lastPoint = screenPt; paper.view.draw()
         } else if (tPanning && game.lastPoint) {
-          paper.view.translate(pt.subtract(game.lastPoint))
-          game.lastPoint = pt
+          const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
+          paper.view.translate(d)
+          game.lastPoint = screenPt
         }
       } else if (ts.length === 2) {
         const dist = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
@@ -381,19 +484,18 @@ export default function JigsawPage() {
     gameRef.current = game
     paper.view.draw()
 
-    // Fit the entire puzzle+scatter area into view, centered on assembly
-    requestAnimationFrame(() => {
-      const r    = canvas.getBoundingClientRect()
-      const vw   = r.width
-      const vh   = r.height
-      // Total area to show: assembly + tight scatter ring
+    // Fit view — double RAF ensures canvas layout is settled after any re-render
+    const fitView = () => {
+      const r   = canvas.getBoundingClientRect()
+      if (r.width === 0) { requestAnimationFrame(fitView); return }
       const showW = puzzleWidth  + (20 + 55 + 20) * 2
       const showH = puzzleHeight + (20 + 55 + 20) * 2
-      const zoom  = Math.min(vw / showW, vh / showH) * 0.9
+      const zoom  = Math.min(r.width / showW, r.height / showH) * 0.9
       paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
       paper.view.draw()
-    })
+    }
+    requestAnimationFrame(() => requestAnimationFrame(fitView))
   }
 
   // ── UI actions ─────────────────────────────────────────────────────────────
@@ -500,11 +602,8 @@ export default function JigsawPage() {
           <style>{`@media (orientation: portrait) { .portrait-overlay { display: flex !important; } }`}</style>
 
           {/* Navbar */}
-          <div style={{ flexShrink: 0, height: 50, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <a href="/amhgames" style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#a78bfa', textDecoration: 'none', fontSize: 12, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}><Home size={13} /></a>
-              <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
-            </div>
+          <div style={{ flexShrink: 0, height: 46, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
+            <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
             <span style={{ fontSize: 11, color: '#a78bfa' }}>{numCols}×{numRows} · {numCols*numRows}pc</span>
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
@@ -520,6 +619,8 @@ export default function JigsawPage() {
 
           {/* Toolbar */}
           <div style={{ flexShrink: 0, height: 60, background: 'rgba(14,9,23,0.97)', borderTop: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0 10px', zIndex: 30 }}>
+            <a href="/amhgames" style={{ ...toolBtn, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Home"><Home size={18} /></a>
+            <div style={{ width: 1, height: 24, background: 'rgba(168,85,247,0.3)' }} />
             <button style={toolBtn} onClick={handleScatter} title="Scatter"><Sparkles size={18} /></button>
             <button style={toolBtn} onClick={() => setShowPreview(true)} title="Preview"><Eye size={18} /></button>
             <div style={{ width: 1, height: 24, background: 'rgba(168,85,247,0.3)' }} />
