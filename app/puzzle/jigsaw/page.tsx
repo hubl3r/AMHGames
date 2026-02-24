@@ -84,15 +84,19 @@ function JigsawCanvas({ image, cols, rows, woodSrc, onComplete, actionsRef }: {
     let stageInstance: any = null  // set once Konva initialises
 
     // ── Load Konva from CDN ──
-    const initKonva = (Konva: any) => {
-      const vw = container.clientWidth
-      const vh = container.clientHeight
-      if (vw === 0 || vh === 0) { setTimeout(() => initKonva(Konva), 50); return }
+    let konvaReady = false
+    let konvaLib: any = null
+
+    const startGame = (Konva: any, vw: number, vh: number) => {
+      if (konvaReady) return  // prevent double-init
+      konvaReady = true
 
       const TW = 100
       const PW = TW * cols
       const PH = TW * rows
 
+      // Clear any leftover canvas from previous render (React StrictMode double-invoke)
+      while (container.firstChild) container.removeChild(container.firstChild)
       const stage = new Konva.Stage({ container, width: vw, height: vh })
       stageInstance = stage
 
@@ -460,20 +464,34 @@ function JigsawCanvas({ image, cols, rows, woodSrc, onComplete, actionsRef }: {
       }
     }
 
+    // Wait for container to have real pixel dimensions, then start
+    const tryStart = () => {
+      const vw = container.clientWidth
+      const vh = container.clientHeight
+      if (vw > 0 && vh > 0 && konvaLib) {
+        startGame(konvaLib, vw, vh)
+      }
+    }
+
+    // ResizeObserver fires when element gets laid out with real size
+    const ro = new ResizeObserver(() => tryStart())
+    ro.observe(container)
+
     if ((window as any).Konva) {
-      initKonva((window as any).Konva)
+      konvaLib = (window as any).Konva
+      tryStart()
     } else {
       const s = document.createElement('script')
       s.src = 'https://cdnjs.cloudflare.com/ajax/libs/konva/9.3.6/konva.min.js'
-      s.onload = () => initKonva((window as any).Konva)
+      s.onload = () => { konvaLib = (window as any).Konva; tryStart() }
       s.onerror = () => console.error('Konva CDN failed')
       document.head.appendChild(s)
     }
 
-    return () => { try { stageInstance?.destroy() } catch(_) {} }
+    return () => { ro.disconnect(); try { stageInstance?.destroy() } catch(_) {} }
   }, [image, cols, rows])
 
-  return <div ref={divRef} style={{ width:'100%', height:'100%' }} />
+  return <div ref={divRef} id="konva-container" style={{ width:'100%', height:'100%' }} />
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
