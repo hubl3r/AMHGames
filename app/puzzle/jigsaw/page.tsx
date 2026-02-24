@@ -45,11 +45,11 @@ export default function JigsawPage() {
   // ── Build puzzle — same logic as original, just centered + bigger world ────
   const initPuzzle = (img: HTMLImageElement, cols = numCols, rows = numRows) => {
     if (!canvasRef.current || !window.paper) return
-    const paper  = window.paper
+    const Paper  = window.paper
     const canvas = canvasRef.current
 
-    if (gameRef.current?.scope) gameRef.current.scope.project.clear()
-
+    // Fresh PaperScope each time so re-init after "New Game" starts completely clean
+    const paper = new Paper.PaperScope()
     paper.setup(canvas)
     const scope = paper.project
 
