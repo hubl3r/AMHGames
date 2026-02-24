@@ -113,19 +113,14 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
   const PW = TW * cols
   const PH = TW * rows
 
-  // Load Konva dynamically (avoids SSR issues in Next.js)
+  // Load Konva via CDN script tag — avoids Next.js SSR/webpack issues entirely
   useEffect(() => {
-    import('konva/lib/index').then(mod => {
-      K.current = mod.default ?? mod
-      setReady(true)
-    }).catch(() => {
-      // fallback: script tag
-      if ((window as any).Konva) { K.current = (window as any).Konva; setReady(true); return }
-      const s = document.createElement('script')
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/konva/9.3.6/konva.min.js'
-      s.onload = () => { K.current = (window as any).Konva; setReady(true) }
-      document.head.appendChild(s)
-    })
+    if ((window as any).Konva) { K.current = (window as any).Konva; setReady(true); return }
+    const s = document.createElement('script')
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/konva/9.3.6/konva.min.js'
+    s.onload = () => { K.current = (window as any).Konva; setReady(true) }
+    s.onerror = () => console.error('Failed to load Konva')
+    document.head.appendChild(s)
   }, [])
 
   useEffect(() => {
