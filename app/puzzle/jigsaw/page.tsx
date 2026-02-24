@@ -309,7 +309,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
     const snapGroup = (anchorId: string) => {
       const anchor = pieceMap.get(anchorId)!
       const grp = groups.get(anchor.groupId)!
-      grp.forEach(pid => {
+      Array.from(grp).forEach(pid => {
         if (pid === anchorId) return
         const p = pieceMap.get(pid)!
         const ap = pieceMap.get(anchorId)!
@@ -326,7 +326,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
       const thresh = TW / 7
       let connected = false
 
-      for (const pid of myGroup) {
+      for (const pid of Array.from(myGroup)) {
         const p = pieceMap.get(pid)!
         for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
           const nbId = `${p.gx+dx}-${p.gy+dy}`
@@ -338,7 +338,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
             // merge groups
             const nbGroup = groups.get(nb.groupId)!
             const newGid = moved.groupId
-            nbGroup.forEach(id2 => {
+            Array.from(nbGroup).forEach(id2 => {
               pieceMap.get(id2)!.groupId = newGid
               myGroup.add(id2)
             })
@@ -382,7 +382,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
       const p = pieceMap.get(id)!
       topZ++
       const grp = groups.get(p.groupId)!
-      grp.forEach(pid => {
+      Array.from(grp).forEach(pid => {
         const pm = pieceMap.get(pid)!; pm.zIndex = topZ
         const kg = konvaPieces.get(pid); if (kg) kg.moveToTop()
       })
@@ -395,7 +395,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
       const grp = groups.get(p.groupId)!
       const dx = wx - dragging.offX - p.x
       const dy = wy - dragging.offY - p.y
-      grp.forEach(pid => {
+      Array.from(grp).forEach(pid => {
         const pm = pieceMap.get(pid)!
         pm.x += dx; pm.y += dy
         const kg = konvaPieces.get(pid)
