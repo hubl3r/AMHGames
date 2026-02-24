@@ -42,7 +42,6 @@ export default function JigsawPage() {
   const canvasRef        = useRef<HTMLCanvasElement>(null)
   const canvasWrapperRef = useRef<HTMLDivElement>(null)
   const gameRef          = useRef<any>(null)
-  const woodPatternRef   = useRef<string | null>(null)
 
   // ── Build puzzle — same logic as original, just centered + bigger world ────
   const initPuzzle = (img: HTMLImageElement, cols = numCols, rows = numRows) => {
@@ -56,34 +55,9 @@ export default function JigsawPage() {
     paper.activate()
     const scope = paper.project
 
-    // ── Background: CSS wood grain on wrapper div, Paper.js canvas transparent ──
-    // No large canvases — mobile-safe approach
+    // ── Background: Unsplash wood image via CSS on wrapper div ─────────────────
     ;(paper.view.element as HTMLCanvasElement).style.background = 'transparent'
-    // woodRef holds the data URL for the CSS background (set once, applied via ref)
-    if (!woodPatternRef.current) {
-      const TW = 300, TH = 180
-      const wc = document.createElement('canvas')
-      wc.width = TW; wc.height = TH
-      const wx = wc.getContext('2d')!
-      wx.fillStyle = '#7B3211'; wx.fillRect(0,0,TW,TH)
-      const gc = ['rgba(90,32,10,0.55)','rgba(150,62,22,0.38)','rgba(55,18,6,0.48)','rgba(170,78,28,0.3)','rgba(110,44,14,0.45)','rgba(80,28,8,0.42)']
-      for (let i=0;i<55;i++){
-        const y0=Math.random()*TH, amp=(Math.random()-.5)*22
-        wx.beginPath(); wx.moveTo(0,y0)
-        for(let x=0;x<=TW;x+=30){wx.lineTo(x, y0+amp*Math.sin(x/TW*Math.PI*(2+Math.random()*2)))}
-        wx.strokeStyle=gc[Math.floor(Math.random()*gc.length)]; wx.lineWidth=.5+Math.random()*2.2; wx.stroke()
-      }
-      for(let i=0;i<180;i++){wx.beginPath();wx.arc(Math.random()*TW,Math.random()*TH,.3+Math.random()*.8,0,Math.PI*2);wx.fillStyle='rgba(30,8,2,0.25)';wx.fill()}
-      woodPatternRef.current = wc.toDataURL('image/jpeg', 0.85)
-    }
-    // Apply CSS to canvas wrapper — accessed via canvasWrapperRef
-    if (canvasWrapperRef.current) {
-      canvasWrapperRef.current.style.backgroundImage = `url('${woodPatternRef.current}')`
-      canvasWrapperRef.current.style.backgroundSize = '300px 180px'
-    }
     // ─────────────────────────────────────────────────────────────────────────
-    // Dummy ref for mat ordering (no woodRaster needed)
-    const woodRaster = { insertAbove: (_:any) => {} } as any
 
     const tileWidth   = 100
     const puzzleWidth  = tileWidth * cols
@@ -575,7 +549,12 @@ export default function JigsawPage() {
           </div>
 
           {/* Canvas — fills remaining space */}
-          <div ref={canvasWrapperRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', backgroundColor: '#7B3211' }}>
+          <div ref={canvasWrapperRef} style={{
+            flex: 1, overflow: 'hidden', position: 'relative',
+            backgroundImage: "url('https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=600&q=70&fit=crop')",
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}>
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
