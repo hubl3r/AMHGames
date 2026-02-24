@@ -39,8 +39,10 @@ export default function JigsawPage() {
   const [showPreview, setShowPreview] = useState(false)
   const [showDiff,    setShowDiff]    = useState(false)
 
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const gameRef   = useRef<any>(null)
+  const canvasRef        = useRef<HTMLCanvasElement>(null)
+  const canvasWrapperRef = useRef<HTMLDivElement>(null)
+  const gameRef          = useRef<any>(null)
+  const woodPatternRef   = useRef<string | null>(null)
 
   // ── Build puzzle — same logic as original, just centered + bigger world ────
   const initPuzzle = (img: HTMLImageElement, cols = numCols, rows = numRows) => {
@@ -54,68 +56,34 @@ export default function JigsawPage() {
     paper.activate()
     const scope = paper.project
 
-    // ── Background: cherry wood table surface drawn in Paper.js ──────────────
-    // Large rect covering entire world — wood base color
-    const woodBase = new paper.Path.Rectangle({
-      point:     new paper.Point(0, 0),
-      size:      new paper.Size(WORLD_W, WORLD_H),
-      fillColor: new paper.Color('#7A3210'),
-    })
-    woodBase.guide = true
-
-    // Draw wood grain lines procedurally via canvas context for realism
-    const woodCanvas = document.createElement('canvas')
-    woodCanvas.width  = WORLD_W
-    woodCanvas.height = WORLD_H
-    const wctx = woodCanvas.getContext('2d')!
-    // Base fill
-    wctx.fillStyle = '#7A3210'
-    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
-    // Grain lines — horizontal wavy streaks
-    const grainColors = ['rgba(100,38,12,0.6)','rgba(160,70,28,0.4)','rgba(60,22,8,0.5)','rgba(180,85,35,0.35)','rgba(120,52,18,0.5)','rgba(90,34,10,0.45)','rgba(200,100,45,0.25)']
-    for (let i = 0; i < 220; i++) {
-      const y0    = Math.random() * WORLD_H
-      const wvy   = (Math.random() - 0.5) * 60
-      const width = 0.5 + Math.random() * 3.5
-      const color = grainColors[Math.floor(Math.random() * grainColors.length)]
-      wctx.beginPath()
-      wctx.moveTo(0, y0)
-      for (let x = 0; x < WORLD_W; x += 80) {
-        const cy1 = y0 + wvy * Math.sin((x / WORLD_W) * Math.PI * (2 + Math.random()))
-        const cy2 = y0 + wvy * Math.cos(((x + 40) / WORLD_W) * Math.PI * 3)
-        wctx.bezierCurveTo(x + 20, cy1, x + 60, cy2, x + 80, y0 + (Math.random() - 0.5) * 8)
+    // ── Background: CSS wood grain on wrapper div, Paper.js canvas transparent ──
+    // No large canvases — mobile-safe approach
+    ;(paper.view.element as HTMLCanvasElement).style.background = 'transparent'
+    // woodRef holds the data URL for the CSS background (set once, applied via ref)
+    if (!woodPatternRef.current) {
+      const TW = 300, TH = 180
+      const wc = document.createElement('canvas')
+      wc.width = TW; wc.height = TH
+      const wx = wc.getContext('2d')!
+      wx.fillStyle = '#7B3211'; wx.fillRect(0,0,TW,TH)
+      const gc = ['rgba(90,32,10,0.55)','rgba(150,62,22,0.38)','rgba(55,18,6,0.48)','rgba(170,78,28,0.3)','rgba(110,44,14,0.45)','rgba(80,28,8,0.42)']
+      for (let i=0;i<55;i++){
+        const y0=Math.random()*TH, amp=(Math.random()-.5)*22
+        wx.beginPath(); wx.moveTo(0,y0)
+        for(let x=0;x<=TW;x+=30){wx.lineTo(x, y0+amp*Math.sin(x/TW*Math.PI*(2+Math.random()*2)))}
+        wx.strokeStyle=gc[Math.floor(Math.random()*gc.length)]; wx.lineWidth=.5+Math.random()*2.2; wx.stroke()
       }
-      wctx.strokeStyle = color
-      wctx.lineWidth   = width
-      wctx.stroke()
+      for(let i=0;i<180;i++){wx.beginPath();wx.arc(Math.random()*TW,Math.random()*TH,.3+Math.random()*.8,0,Math.PI*2);wx.fillStyle='rgba(30,8,2,0.25)';wx.fill()}
+      woodPatternRef.current = wc.toDataURL('image/jpeg', 0.85)
     }
-    // Subtle pore dots
-    for (let i = 0; i < 1800; i++) {
-      const px = Math.random() * WORLD_W, py = Math.random() * WORLD_H
-      wctx.beginPath()
-      wctx.arc(px, py, 0.5 + Math.random() * 1.2, 0, Math.PI * 2)
-      wctx.fillStyle = 'rgba(40,14,4,0.3)'
-      wctx.fill()
+    // Apply CSS to canvas wrapper — accessed via canvasWrapperRef
+    if (canvasWrapperRef.current) {
+      canvasWrapperRef.current.style.backgroundImage = `url('${woodPatternRef.current}')`
+      canvasWrapperRef.current.style.backgroundSize = '300px 180px'
     }
-    // Warm varnish gloss
-    const gloss = wctx.createLinearGradient(0, 0, WORLD_W, WORLD_H)
-    gloss.addColorStop(0,   'rgba(255,200,140,0.08)')
-    gloss.addColorStop(0.4, 'rgba(255,180,100,0.04)')
-    gloss.addColorStop(0.7, 'rgba(200,120,60,0.06)')
-    gloss.addColorStop(1,   'rgba(255,200,140,0.09)')
-    wctx.fillStyle = gloss
-    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
-
-    const woodImg = new Image()
-    woodImg.src = woodCanvas.toDataURL()
-    const woodRaster = new paper.Raster(woodImg)
-    woodRaster.position = new paper.Point(WORLD_W / 2, WORLD_H / 2)
-    woodRaster.size     = new paper.Size(WORLD_W, WORLD_H)
-    woodRaster.guide    = true
-    // Wood: base color at very bottom, raster on top of it
-    woodBase.sendToBack()
-    woodRaster.insertAbove(woodBase)
     // ─────────────────────────────────────────────────────────────────────────
+    // Dummy ref for mat ordering (no woodRaster needed)
+    const woodRaster = { insertAbove: (_:any) => {} } as any
 
     const tileWidth   = 100
     const puzzleWidth  = tileWidth * cols
@@ -134,7 +102,7 @@ export default function JigsawPage() {
       size:      [puzzleWidth + 36, puzzleHeight + 36],
       fillColor: new paper.Color(0, 0, 0, 0.5),
     })
-    matShadow.insertAbove(woodRaster)
+    matShadow.sendToBack()
 
     const mat = new paper.Path.Rectangle({
       center:    raster.position,
@@ -481,18 +449,19 @@ export default function JigsawPage() {
     gameRef.current = game
     paper.view.draw()
 
-    // Fit view — double RAF ensures canvas layout is settled after any re-render
+    // Fit view centered on assembly area
     const fitView = () => {
-      const r   = canvas.getBoundingClientRect()
-      if (r.width === 0) { requestAnimationFrame(fitView); return }
+      const r = canvas.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) { requestAnimationFrame(fitView); return }
       const showW = puzzleWidth  + (20 + 55 + 20) * 2
       const showH = puzzleHeight + (20 + 55 + 20) * 2
-      const zoom  = Math.min(r.width / showW, r.height / showH) * 0.9
-      paper.view.zoom   = zoom
+      paper.view.zoom   = Math.min(r.width / showW, r.height / showH) * 0.88
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
       paper.view.draw()
     }
+    // Double-RAF for desktop, setTimeout fallback for slow mobile layout
     requestAnimationFrame(() => requestAnimationFrame(fitView))
+    setTimeout(fitView, 300)
   }
 
   // ── UI actions ─────────────────────────────────────────────────────────────
@@ -606,7 +575,7 @@ export default function JigsawPage() {
           </div>
 
           {/* Canvas — fills remaining space */}
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          <div ref={canvasWrapperRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', backgroundColor: '#7B3211' }}>
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
