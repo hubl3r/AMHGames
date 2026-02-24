@@ -54,67 +54,16 @@ export default function JigsawPage() {
     paper.activate()
     const scope = paper.project
 
-    // ── Background: cherry wood table surface drawn in Paper.js ──────────────
-    // Large rect covering entire world — wood base color
-    const woodBase = new paper.Path.Rectangle({
-      point:     new paper.Point(0, 0),
-      size:      new paper.Size(WORLD_W, WORLD_H),
-      fillColor: new paper.Color('#7A3210'),
-    })
-    woodBase.guide = true
-
-    // Draw wood grain lines procedurally via canvas context for realism
-    const woodCanvas = document.createElement('canvas')
-    woodCanvas.width  = WORLD_W
-    woodCanvas.height = WORLD_H
-    const wctx = woodCanvas.getContext('2d')!
-    // Base fill
-    wctx.fillStyle = '#7A3210'
-    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
-    // Grain lines — horizontal wavy streaks
-    const grainColors = ['rgba(100,38,12,0.6)','rgba(160,70,28,0.4)','rgba(60,22,8,0.5)','rgba(180,85,35,0.35)','rgba(120,52,18,0.5)','rgba(90,34,10,0.45)','rgba(200,100,45,0.25)']
-    for (let i = 0; i < 220; i++) {
-      const y0    = Math.random() * WORLD_H
-      const wvy   = (Math.random() - 0.5) * 60
-      const width = 0.5 + Math.random() * 3.5
-      const color = grainColors[Math.floor(Math.random() * grainColors.length)]
-      wctx.beginPath()
-      wctx.moveTo(0, y0)
-      for (let x = 0; x < WORLD_W; x += 80) {
-        const cy1 = y0 + wvy * Math.sin((x / WORLD_W) * Math.PI * (2 + Math.random()))
-        const cy2 = y0 + wvy * Math.cos(((x + 40) / WORLD_W) * Math.PI * 3)
-        wctx.bezierCurveTo(x + 20, cy1, x + 60, cy2, x + 80, y0 + (Math.random() - 0.5) * 8)
-      }
-      wctx.strokeStyle = color
-      wctx.lineWidth   = width
-      wctx.stroke()
-    }
-    // Subtle pore dots
-    for (let i = 0; i < 1800; i++) {
-      const px = Math.random() * WORLD_W, py = Math.random() * WORLD_H
-      wctx.beginPath()
-      wctx.arc(px, py, 0.5 + Math.random() * 1.2, 0, Math.PI * 2)
-      wctx.fillStyle = 'rgba(40,14,4,0.3)'
-      wctx.fill()
-    }
-    // Warm varnish gloss
-    const gloss = wctx.createLinearGradient(0, 0, WORLD_W, WORLD_H)
-    gloss.addColorStop(0,   'rgba(255,200,140,0.08)')
-    gloss.addColorStop(0.4, 'rgba(255,180,100,0.04)')
-    gloss.addColorStop(0.7, 'rgba(200,120,60,0.06)')
-    gloss.addColorStop(1,   'rgba(255,200,140,0.09)')
-    wctx.fillStyle = gloss
-    wctx.fillRect(0, 0, WORLD_W, WORLD_H)
-
-    const woodImg = new Image()
-    woodImg.src = woodCanvas.toDataURL()
-    const woodRaster = new paper.Raster(woodImg)
+    // ── Background: real cherry wood photo as table surface ─────────────────
+    // Use a Paper.js layer system: wood → mat → pieces
+    // Layer 0 (bottom): wood table photo
+    const woodLayer  = new paper.Layer(); woodLayer.activate()
+    const woodRaster = new paper.Raster('https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=1600&h=1300&fit=crop&q=80')
     woodRaster.position = new paper.Point(WORLD_W / 2, WORLD_H / 2)
     woodRaster.size     = new paper.Size(WORLD_W, WORLD_H)
-    woodRaster.guide    = true
-    woodBase.sendToBack()
-    woodRaster.sendToBack()
-    woodBase.sendToBack()
+
+    // Layer 1: mat + pieces
+    const gameLayer = new paper.Layer(); gameLayer.activate()
     // ─────────────────────────────────────────────────────────────────────────
 
     const tileWidth   = 100
@@ -127,47 +76,42 @@ export default function JigsawPage() {
     raster.visible  = false
     raster.size     = new paper.Size(puzzleWidth, puzzleHeight)
 
-    // Assembly zone — executive black leather mat
+    // Assembly zone — executive black leather mat (on gameLayer, above wood)
+    // Drop shadow
     const matShadow = new paper.Path.Rectangle({
-      center:      new paper.Point(raster.position.x + 4, raster.position.y + 5),
-      size:        [puzzleWidth + 32, puzzleHeight + 32],
-      fillColor:   new paper.Color(0, 0, 0, 0.45),
+      center:    new paper.Point(raster.position.x + 6, raster.position.y + 8),
+      size:      [puzzleWidth + 36, puzzleHeight + 36],
+      fillColor: new paper.Color(0, 0, 0, 0.55),
     })
-    matShadow.guide = true
-    matShadow.sendToBack()
-
+    // Mat surface — near-black with slight warmth
     const mat = new paper.Path.Rectangle({
-      center:      raster.position,
-      size:        [puzzleWidth + 28, puzzleHeight + 28],
-      fillColor:   new paper.Color(0.06, 0.06, 0.07, 1),
+      center:    raster.position,
+      size:      [puzzleWidth + 28, puzzleHeight + 28],
+      fillColor: new paper.Color(0.055, 0.053, 0.060, 1),
     })
-    mat.guide = true
-
-    // Subtle stitched border on mat
+    // Inner stitched border
     const matBorder = new paper.Path.Rectangle({
       center:      raster.position,
-      size:        [puzzleWidth + 22, puzzleHeight + 22],
+      size:        [puzzleWidth + 18, puzzleHeight + 18],
       fillColor:   null,
-      strokeColor: new paper.Color(0.22, 0.22, 0.24, 0.9),
-      strokeWidth: 1.5,
-      dashArray:   [5, 4],
+      strokeColor: new paper.Color(0.28, 0.27, 0.32, 0.85),
+      strokeWidth: 1.2,
+      dashArray:   [4, 3],
     })
-    matBorder.guide = true
-
+    // Subtle top-left highlight (light catching leather edge)
     const matHighlight = new paper.Path.Rectangle({
       center:      raster.position,
       size:        [puzzleWidth + 28, puzzleHeight + 28],
       fillColor:   null,
-      strokeColor: new paper.Color(1, 1, 1, 0.06),
+      strokeColor: new paper.Color(1, 1, 1, 0.07),
       strokeWidth: 1,
     })
-    matHighlight.guide = true
-
-    matShadow.sendToBack(); mat.sendToBack(); matBorder.sendToBack(); matHighlight.sendToBack()
+    // Stack correctly — matShadow is lowest on this layer
+    matShadow.sendToBack()
     const playArea = mat
 
     const game: any = {
-      scope, tiles: [], selectedTile: null,
+      scope, gameLayer, tiles: [], selectedTile: null,
       dragging: false, panning: false, lastPoint: null,
       tileWidth, numCols: cols, numRows: rows,
       raster, playArea, complete: false, zIndex: 0,
@@ -248,9 +192,18 @@ export default function JigsawPage() {
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup   = [group]
         group.offsets      = mask.offsets
+        // Unclipped shadow — separate item stored on the group for repositioning
+        const shadow = mask.clone()
+        shadow.fillColor   = new paper.Color(0, 0, 0, 0.35)
+        shadow.strokeColor = null
+        shadow.guide       = false
+        group.shadow       = shadow   // keep ref so we can move it with the piece
         game.tiles.push(group)
       }
     }
+
+    // Place all shadows just below their pieces
+    game.tiles.forEach((tile: any) => { if (tile.shadow) tile.shadow.insertBelow(tile) })
 
     // ── Helpers — IDENTICAL to original ──────────────────────────────────────
     const getTileGridCenter = (tile: any) => {
@@ -258,7 +211,9 @@ export default function JigsawPage() {
       return tile.position.add(new paper.Point((ol - or_)/2, (ot - ob)/2))
     }
     const setTileGridCenter = (tile: any, target: any) => {
+      const prev = tile.position.clone()
       tile.position = target.add(tile.position).subtract(getTileGridCenter(tile))
+      if (tile.shadow) tile.shadow.position = tile.shadow.position.add(tile.position.subtract(prev))
     }
     const setTileNatural = (tile: any) => {
       const origin = raster.position.subtract(new paper.Point(puzzleWidth/2, puzzleHeight/2))
@@ -266,8 +221,11 @@ export default function JigsawPage() {
       setTileGridCenter(tile, nat)
     }
 
-    // Place at natural positions first
-    game.tiles.forEach((t: any) => setTileNatural(t))
+    // Place at natural positions first, init shadows offset by (3,4)
+    game.tiles.forEach((t: any) => {
+      setTileNatural(t)
+      if (t.shadow) t.shadow.position = t.position.add(new paper.Point(3, 4))
+    })
 
     // ── Scatter in ring around assembly ──────────────────────────────────────
     const doScatter = () => {
@@ -352,7 +310,7 @@ export default function JigsawPage() {
 
     tool.onMouseDown = (e: any) => {
       if (game.complete) return
-      const hit = scope.hitTest(e.point, { fill: true, tolerance: 15 })
+      const hit = gameLayer.hitTest(e.point, { fill: true, tolerance: 15 })
       if (hit?.item) {
         let t = hit.item
         while (t && !t.gridPosition && t.parent) t = t.parent
@@ -368,7 +326,10 @@ export default function JigsawPage() {
     tool.onMouseDrag = (e: any) => {
       if (game.dragging && game.selectedTile) {
         const d = e.point.subtract(game.lastPoint)
-        game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
+        game.selectedTile.pieceGroup.forEach((p: any) => {
+          p.position = p.position.add(d)
+          if (p.shadow) p.shadow.position = p.shadow.position.add(d)
+        })
         game.lastPoint = e.point; paper.view.draw()
       } else if (game.panning) {
         paper.view.translate(e.point.subtract(game.lastPoint))
@@ -408,7 +369,7 @@ export default function JigsawPage() {
       const ts = Array.from(e.touches); lastTouches = ts
       if (ts.length === 1 && !game.complete) {
         const pt  = touchToWorld(ts[0])
-        const hit = scope.hitTest(pt, { fill: true, tolerance: 20 })
+        const hit = gameLayer.hitTest(pt, { fill: true, tolerance: 20 })
         if (hit?.item) {
           let t = hit.item
           while (t && !t.gridPosition && t.parent) t = t.parent
@@ -434,7 +395,10 @@ export default function JigsawPage() {
         const screenPt = touchToScreen(ts[0])
         if (tDragPiece && game.selectedTile && game.lastPoint) {
           const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
-          game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
+          game.selectedTile.pieceGroup.forEach((p: any) => {
+            p.position = p.position.add(d)
+            if (p.shadow) p.shadow.position = p.shadow.position.add(d)
+          })
           game.lastPoint = screenPt; paper.view.draw()
         } else if (tPanning && game.lastPoint) {
           const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
