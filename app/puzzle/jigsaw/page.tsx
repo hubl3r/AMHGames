@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, RotateCcw, CheckCircle, Sparkles, Eye, Grid3X3, Maximize2, Plus, Minus, X } from 'lucide-react'
+import { Upload, RotateCcw, CheckCircle, Sparkles, Eye, Grid3X3, Maximize2, Plus, Minus, X, Home } from 'lucide-react'
 import Script from 'next/script'
 
 // ── World size — big enough for assembly + scatter ring ──────────────────────
@@ -51,6 +51,7 @@ export default function JigsawPage() {
     // Fresh PaperScope each time so re-init after "New Game" starts completely clean
     const paper = new Paper.PaperScope()
     paper.setup(canvas)
+    paper.activate()
     const scope = paper.project
 
     const tileWidth   = 100
@@ -382,12 +383,13 @@ export default function JigsawPage() {
 
     // Fit the entire puzzle+scatter area into view, centered on assembly
     requestAnimationFrame(() => {
-      const vw = canvas.width  / (window.devicePixelRatio || 1)
-      const vh = canvas.height / (window.devicePixelRatio || 1)
+      const r    = canvas.getBoundingClientRect()
+      const vw   = r.width
+      const vh   = r.height
       // Total area to show: assembly + tight scatter ring
       const showW = puzzleWidth  + (20 + 55 + 20) * 2
       const showH = puzzleHeight + (20 + 55 + 20) * 2
-      const zoom  = Math.min(vw / showW, vh / showH) * 0.92
+      const zoom  = Math.min(vw / showW, vh / showH) * 0.9
       paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
       paper.view.draw()
@@ -446,7 +448,11 @@ export default function JigsawPage() {
       {!image && (
         <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', padding: '40px 20px', fontFamily: 'ui-sans-serif,system-ui,sans-serif' }}>
           <div style={{ maxWidth: 480, margin: '0 auto' }}>
-            <h1 style={{ textAlign: 'center', fontSize: 36, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em', marginBottom: 4 }}>JIGSAW</h1>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <a href="/amhgames" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#a78bfa', textDecoration: 'none', fontSize: 13, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}><Home size={14} /> Home</a>
+              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em', margin: 0 }}>JIGSAW</h1>
+              <div style={{ width: 80 }} />
+            </div>
             <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: 12, marginBottom: 28, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pick an image to start</p>
 
             <label style={{ display: 'block', padding: '30px 20px', borderRadius: 16, border: '2px dashed rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.05)', cursor: 'pointer', textAlign: 'center', marginBottom: 18 }}>
@@ -495,7 +501,10 @@ export default function JigsawPage() {
 
           {/* Navbar */}
           <div style={{ flexShrink: 0, height: 50, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
-            <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <a href="/amhgames" style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#a78bfa', textDecoration: 'none', fontSize: 12, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}><Home size={13} /></a>
+              <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
+            </div>
             <span style={{ fontSize: 11, color: '#a78bfa' }}>{numCols}×{numRows} · {numCols*numRows}pc</span>
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
