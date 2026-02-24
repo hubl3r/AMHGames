@@ -369,7 +369,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
 
     const hitPiece = (wx: number, wy: number): string | null => {
       // Check in reverse z order
-      const sorted = [...pieceMap.values()].sort((a,b) => b.zIndex - a.zIndex)
+      const sorted = Array.from(pieceMap.values()).sort((a,b) => b.zIndex - a.zIndex)
       for (const p of sorted) {
         const lx = wx - (p.x - TW/2)
         const ly = wy - (p.y - TW/2)
@@ -516,7 +516,7 @@ function JigsawCanvas({ image, cols, rows, onComplete, onReset, woodSrc, stageCo
           if (Math.abs(px-WORLD_CX)>hw+8||Math.abs(py-WORLD_CY)>hh+8) break
         }
         p.x=px; p.y=py; p.groupId=p.id
-        groups.clear(); pieceMap.forEach(pm=>groups.set(pm.id,new Set([pm.id])))
+        groups.clear(); Array.from(pieceMap.values()).forEach(pm=>groups.set(pm.id,new Set([pm.id])))
       })
       pieceMap.forEach(p => {
         const kg=konvaPieces.get(p.id); if(kg){kg.x(p.x-TW/2);kg.y(p.y-TW/2)}
