@@ -53,61 +53,70 @@ export default function JigsawPage() {
     paper.setup(canvas)
     paper.activate()
     const scope = paper.project
-
-    // ── Background: real cherry wood photo as table surface ─────────────────
-    // Use a Paper.js layer system: wood → mat → pieces
-    // Layer 0 (bottom): wood table photo
-    const woodLayer  = new paper.Layer(); woodLayer.activate()
-    const woodRaster = new paper.Raster('https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=1600&h=1300&fit=crop&q=80')
-    woodRaster.position = new paper.Point(WORLD_W / 2, WORLD_H / 2)
-    woodRaster.size     = new paper.Size(WORLD_W, WORLD_H)
-
-    // Layer 1: mat + pieces
-    const gameLayer = new paper.Layer(); gameLayer.activate()
-    // ─────────────────────────────────────────────────────────────────────────
+    // Single default layer — manual z-ordering only
+    const gameLayer = scope.activeLayer
+    // Transparent so CSS wood grain shows through
+    ;(paper.view.element as HTMLCanvasElement).style.background = 'transparent'
 
     const tileWidth   = 100
     const puzzleWidth  = tileWidth * cols
     const puzzleHeight = tileWidth * rows
 
-    // Raster centered in world
+    // Raster centered in world (invisible, used only for getSubRaster)
     const raster = new paper.Raster(img)
     raster.position = new paper.Point(WORLD_CX, WORLD_CY)
     raster.visible  = false
     raster.size     = new paper.Size(puzzleWidth, puzzleHeight)
 
-    // Assembly zone — executive black leather mat (on gameLayer, above wood)
-    // Drop shadow
-    const matShadow = new paper.Path.Rectangle({
-      center:    new paper.Point(raster.position.x + 6, raster.position.y + 8),
-      size:      [puzzleWidth + 36, puzzleHeight + 36],
-      fillColor: new paper.Color(0, 0, 0, 0.55),
-    })
-    // Mat surface — near-black with slight warmth
-    const mat = new paper.Path.Rectangle({
-      center:    raster.position,
-      size:      [puzzleWidth + 28, puzzleHeight + 28],
-      fillColor: new paper.Color(0.055, 0.053, 0.060, 1),
-    })
-    // Inner stitched border
-    const matBorder = new paper.Path.Rectangle({
-      center:      raster.position,
-      size:        [puzzleWidth + 18, puzzleHeight + 18],
-      fillColor:   null,
-      strokeColor: new paper.Color(0.28, 0.27, 0.32, 0.85),
-      strokeWidth: 1.2,
-      dashArray:   [4, 3],
-    })
-    // Subtle top-left highlight (light catching leather edge)
-    const matHighlight = new paper.Path.Rectangle({
-      center:      raster.position,
-      size:        [puzzleWidth + 28, puzzleHeight + 28],
-      fillColor:   null,
-      strokeColor: new paper.Color(1, 1, 1, 0.07),
-      strokeWidth: 1,
-    })
-    // Stack correctly — matShadow is lowest on this layer
+    // ── Assembly zone: executive black desk mat ───────────────────────────────
+    // Draw in order: shadow → mat → stitchBorder → highlight
+    // All use insertAbove(raster) so they appear above the invisible source raster
+    // but below pieces which are added later
+    const matShadow = new paper.Path.Rectangle(
+      new paper.Rectangle(
+        new paper.Point(WORLD_CX - puzzleWidth/2 - 14 + 7, WORLD_CY - puzzleHeight/2 - 14 + 9),
+        new paper.Size(puzzleWidth + 28, puzzleHeight + 28)
+      )
+    )
+    matShadow.fillColor   = new paper.Color(0, 0, 0, 0.5)
+    matShadow.strokeColor = null
+
+    const mat = new paper.Path.Rectangle(
+      new paper.Rectangle(
+        new paper.Point(WORLD_CX - puzzleWidth/2 - 14, WORLD_CY - puzzleHeight/2 - 14),
+        new paper.Size(puzzleWidth + 28, puzzleHeight + 28)
+      )
+    )
+    mat.fillColor   = new paper.Color(0.05, 0.048, 0.058, 1)
+    mat.strokeColor = null
+
+    const matBorder = new paper.Path.Rectangle(
+      new paper.Rectangle(
+        new paper.Point(WORLD_CX - puzzleWidth/2 - 9, WORLD_CY - puzzleHeight/2 - 9),
+        new paper.Size(puzzleWidth + 18, puzzleHeight + 18)
+      )
+    )
+    matBorder.fillColor   = null
+    matBorder.strokeColor = new paper.Color(0.3, 0.29, 0.34, 0.8)
+    matBorder.strokeWidth = 1.2
+    matBorder.dashArray   = [4, 3]
+
+    const matEdge = new paper.Path.Rectangle(
+      new paper.Rectangle(
+        new paper.Point(WORLD_CX - puzzleWidth/2 - 14, WORLD_CY - puzzleHeight/2 - 14),
+        new paper.Size(puzzleWidth + 28, puzzleHeight + 28)
+      )
+    )
+    matEdge.fillColor   = null
+    matEdge.strokeColor = new paper.Color(1, 1, 1, 0.06)
+    matEdge.strokeWidth = 1
+
+    // Ensure correct order: shadow lowest, then mat, then borders
     matShadow.sendToBack()
+    mat.insertAbove(matShadow)
+    matBorder.insertAbove(mat)
+    matEdge.insertAbove(matBorder)
+    // ─────────────────────────────────────────────────────────────────────────
     const playArea = mat
 
     const game: any = {
@@ -172,7 +181,7 @@ export default function JigsawPage() {
       return path
     }
 
-    // ── Create pieces — IDENTICAL to original ────────────────────────────────
+    // ── Create pieces ────────────────────────────────────────────────────────
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const mask   = createMask(x, y)
@@ -183,27 +192,30 @@ export default function JigsawPage() {
         pieceRaster.position = new paper.Point(tileWidth/2, tileWidth/2)
 
         const outline = mask.clone()
-        outline.strokeColor = new paper.Color('rgba(255,255,255,0.3)')
+        outline.strokeColor = new paper.Color(1, 1, 1, 0.28)
         outline.strokeWidth = 1
         outline.fillColor   = null
+
+        // Shadow path — separate, unclipped, placed behind piece
+        const shadow = mask.clone()
+        shadow.fillColor   = new paper.Color(0, 0, 0, 0.38)
+        shadow.strokeColor = null
 
         const group = new paper.Group([mask, pieceRaster, outline])
         group.clipped      = true
         group.gridPosition = new paper.Point(x, y)
         group.pieceGroup   = [group]
         group.offsets      = mask.offsets
-        // Unclipped shadow — separate item stored on the group for repositioning
-        const shadow = mask.clone()
-        shadow.fillColor   = new paper.Color(0, 0, 0, 0.35)
-        shadow.strokeColor = null
-        shadow.guide       = false
-        group.shadow       = shadow   // keep ref so we can move it with the piece
+        group.shadow       = shadow
         game.tiles.push(group)
       }
     }
 
-    // Place all shadows just below their pieces
-    game.tiles.forEach((tile: any) => { if (tile.shadow) tile.shadow.insertBelow(tile) })
+    // Insert all pieces (and their shadows) above the mat stack
+    game.tiles.forEach((tile: any) => {
+      tile.shadow.insertAbove(matEdge)
+      tile.insertAbove(tile.shadow)
+    })
 
     // ── Helpers — IDENTICAL to original ──────────────────────────────────────
     const getTileGridCenter = (tile: any) => {
@@ -213,7 +225,8 @@ export default function JigsawPage() {
     const setTileGridCenter = (tile: any, target: any) => {
       const prev = tile.position.clone()
       tile.position = target.add(tile.position).subtract(getTileGridCenter(tile))
-      if (tile.shadow) tile.shadow.position = tile.shadow.position.add(tile.position.subtract(prev))
+      const delta = tile.position.subtract(prev)
+      if (tile.shadow) tile.shadow.position = tile.shadow.position.add(delta)
     }
     const setTileNatural = (tile: any) => {
       const origin = raster.position.subtract(new paper.Point(puzzleWidth/2, puzzleHeight/2))
@@ -221,10 +234,10 @@ export default function JigsawPage() {
       setTileGridCenter(tile, nat)
     }
 
-    // Place at natural positions first, init shadows offset by (3,4)
+    // Place at natural positions — shadows offset by (4,5)
     game.tiles.forEach((t: any) => {
       setTileNatural(t)
-      if (t.shadow) t.shadow.position = t.position.add(new paper.Point(3, 4))
+      if (t.shadow) t.shadow.position = t.position.add(new paper.Point(4, 5))
     })
 
     // ── Scatter in ring around assembly ──────────────────────────────────────
@@ -316,7 +329,11 @@ export default function JigsawPage() {
         while (t && !t.gridPosition && t.parent) t = t.parent
         if (t?.gridPosition) {
           game.selectedTile = t; game.dragging = true; game.lastPoint = e.point
-          game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
+          game.zIndex++; t.pieceGroup.forEach((p: any) => {
+            if (p.shadow) p.shadow.bringToFront()
+            p.bringToFront()
+            p.data.zIndex = game.zIndex
+          })
           return
         }
       }
@@ -376,7 +393,11 @@ export default function JigsawPage() {
           if (t?.gridPosition) {
             game.selectedTile = t; tDragPiece = true
             game.lastPoint = touchToScreen(ts[0])
-            game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
+            game.zIndex++; t.pieceGroup.forEach((p: any) => {
+              if (p.shadow) p.shadow.bringToFront()
+              p.bringToFront()
+              p.data.zIndex = game.zIndex
+            })
             return
           }
         }
@@ -555,7 +576,7 @@ export default function JigsawPage() {
 
       {/* ── Game screen ── */}
       {image && (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden', position: 'fixed', inset: 0 }}>
 
           {/* Portrait lock overlay */}
           <div style={{ display: 'none', position: 'fixed', inset: 0, zIndex: 100, background: '#0e0917', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }} className="portrait-overlay">
@@ -572,12 +593,20 @@ export default function JigsawPage() {
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
 
-          {/* Canvas — fills remaining space */}
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* Canvas — fills remaining space, cherry wood grain via CSS gradients */}
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative',
+            background: [
+              'repeating-linear-gradient(175deg, transparent 0px, transparent 3px, rgba(40,12,4,0.18) 3px, rgba(40,12,4,0.18) 4px)',
+              'repeating-linear-gradient(178deg, transparent 0px, transparent 7px, rgba(80,24,8,0.12) 7px, rgba(80,24,8,0.12) 8px)',
+              'repeating-linear-gradient(172deg, transparent 0px, transparent 13px, rgba(180,80,20,0.09) 13px, rgba(180,80,20,0.09) 14px)',
+              'repeating-linear-gradient(176deg, transparent 0px, transparent 21px, rgba(30,10,2,0.14) 21px, rgba(30,10,2,0.14) 22px)',
+              'linear-gradient(168deg, #8B3A14 0%, #6B2A0C 18%, #9B4418 32%, #7A3210 48%, #A04A1C 62%, #6B2A0C 78%, #8B3A14 100%)',
+            ].join(', ')
+          }}>
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
-              style={{ display: 'block', width: '100%', height: '100%' }}
+              style={{ display: 'block', width: '100%', height: '100%', background: 'transparent' }}
             />
           </div>
 
