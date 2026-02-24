@@ -182,31 +182,32 @@ export default function JigsawPage() {
     const doScatter = () => {
       const cx = WORLD_CX, cy = WORLD_CY
       const hw = puzzleWidth/2, hh = puzzleHeight/2
-      const pad = 30  // gap between assembly edge and nearest scatter position
+      const pad = 20      // min gap from assembly edge
+      const spread = 55   // max distance beyond pad — tight ring
 
       const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
       shuffled.forEach((tile: any) => {
         let tx: number, ty: number, attempts = 0
         do {
           const side = Math.floor(Math.random() * 4)
-          if      (side === 0) { // left
-            tx = cx - hw - pad - Math.random() * 500
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
+          if (side === 0) { // left
+            tx = cx - hw - pad - Math.random() * spread
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
           } else if (side === 1) { // right
-            tx = cx + hw + pad + Math.random() * 500
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
+            tx = cx + hw + pad + Math.random() * spread
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
           } else if (side === 2) { // top
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
-            ty = cy - hh - pad - Math.random() * 400
-          } else {               // bottom
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
-            ty = cy + hh + pad + Math.random() * 400
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
+            ty = cy - hh - pad - Math.random() * spread
+          } else { // bottom
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
+            ty = cy + hh + pad + Math.random() * spread
           }
           attempts++
         } while (
           attempts < 30 &&
-          Math.abs(tx - cx) < hw + 20 &&
-          Math.abs(ty - cy) < hh + 20
+          Math.abs(tx - cx) < hw + 10 &&
+          Math.abs(ty - cy) < hh + 10
         )
         setTileGridCenter(tile, new paper.Point(tx, ty))
       })
@@ -383,9 +384,9 @@ export default function JigsawPage() {
     requestAnimationFrame(() => {
       const vw = canvas.width  / (window.devicePixelRatio || 1)
       const vh = canvas.height / (window.devicePixelRatio || 1)
-      // Total area to show: assembly + scatter pad on all sides
-      const showW = puzzleWidth  + (30 + 50) * 2   // pad + maxSpread each side
-      const showH = puzzleHeight + (30 + 50) * 2
+      // Total area to show: assembly + tight scatter ring
+      const showW = puzzleWidth  + (20 + 55 + 20) * 2
+      const showH = puzzleHeight + (20 + 55 + 20) * 2
       const zoom  = Math.min(vw / showW, vh / showH) * 0.92
       paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
@@ -483,6 +484,14 @@ export default function JigsawPage() {
       {/* ── Game screen ── */}
       {image && (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden' }}>
+
+          {/* Portrait lock overlay */}
+          <div style={{ display: 'none', position: 'fixed', inset: 0, zIndex: 100, background: '#0e0917', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }} className="portrait-overlay">
+            <div style={{ fontSize: 48 }}>↻</div>
+            <p style={{ color: '#c084fc', fontWeight: 700, fontSize: 18, textAlign: 'center', margin: 0 }}>Rotate to landscape</p>
+            <p style={{ color: '#a78bfa', fontSize: 13, textAlign: 'center', margin: 0 }}>Jigsaw is best played horizontally</p>
+          </div>
+          <style>{`@media (orientation: portrait) { .portrait-overlay { display: flex !important; } }`}</style>
 
           {/* Navbar */}
           <div style={{ flexShrink: 0, height: 50, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
