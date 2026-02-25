@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, RotateCcw, CheckCircle, Sparkles, Eye, Grid3X3, Maximize2, Plus, Minus, X, Home } from 'lucide-react'
+import { Upload, RotateCcw, CheckCircle, Sparkles, Eye, Grid3X3, Maximize2, Plus, Minus, X } from 'lucide-react'
 import Script from 'next/script'
 
 // ── World size — big enough for assembly + scatter ring ──────────────────────
@@ -45,26 +45,13 @@ export default function JigsawPage() {
   // ── Build puzzle — same logic as original, just centered + bigger world ────
   const initPuzzle = (img: HTMLImageElement, cols = numCols, rows = numRows) => {
     if (!canvasRef.current || !window.paper) return
-    const Paper  = window.paper
+    const paper  = window.paper
     const canvas = canvasRef.current
 
-    // Set canvas pixel dimensions to match its CSS layout size
-    // Paper.js reads .width/.height attributes, not CSS — critical for mobile
-    const rect = canvas.getBoundingClientRect()
-    const dpr  = window.devicePixelRatio || 1
-    canvas.width  = Math.round(rect.width  * dpr)
-    canvas.height = Math.round(rect.height * dpr)
+    if (gameRef.current?.scope) gameRef.current.scope.project.clear()
 
-    // Fresh PaperScope each time so re-init after "New Game" starts completely clean
-    const paper = new Paper.PaperScope()
     paper.setup(canvas)
-    paper.activate()
     const scope = paper.project
-
-    // ── Background: CSS on canvas wrapper — no canvas generation needed ────────
-    // Paper.js canvas is transparent; wood image is a CSS background-image
-
-    // ─────────────────────────────────────────────────────────────────────────
 
     const tileWidth   = 100
     const puzzleWidth  = tileWidth * cols
@@ -76,35 +63,17 @@ export default function JigsawPage() {
     raster.visible  = false
     raster.size     = new paper.Size(puzzleWidth, puzzleHeight)
 
-    // Assembly zone — black desk mat
-    // Items added first = lowest z-order. No sendToBack needed.
-    const matShadow = new paper.Path.Rectangle({
-      center:    new paper.Point(raster.position.x + 6, raster.position.y + 8),
-      size:      [puzzleWidth + 36, puzzleHeight + 36],
-      fillColor: new paper.Color(0, 0, 0, 0.5),
-    })
-    const mat = new paper.Path.Rectangle({
-      center:    raster.position,
-      size:      [puzzleWidth + 28, puzzleHeight + 28],
-      fillColor: new paper.Color(0.05, 0.05, 0.06, 1),
-    })
-    const matBorder = new paper.Path.Rectangle({
+    // Assembly zone guide
+    const playArea = new paper.Path.Rectangle({
       center:      raster.position,
-      size:        [puzzleWidth + 18, puzzleHeight + 18],
-      fillColor:   null,
-      strokeColor: new paper.Color(0.3, 0.29, 0.34, 0.85),
-      strokeWidth: 1.2,
-      dashArray:   [4, 3],
+      size:        [puzzleWidth + 20, puzzleHeight + 20],
+      fillColor:   'rgba(0,0,0,0.18)',
+      strokeColor: 'rgba(168,85,247,0.35)',
+      strokeWidth: 2,
+      dashArray:   [8, 5],
     })
-    const matHighlight = new paper.Path.Rectangle({
-      center:      raster.position,
-      size:        [puzzleWidth + 28, puzzleHeight + 28],
-      fillColor:   null,
-      strokeColor: new paper.Color(1, 1, 1, 0.07),
-      strokeWidth: 1,
-    })
-    // Pieces are added after this, so they'll be above mat automatically
-    const playArea = mat
+    playArea.guide = true
+    playArea.sendToBack()
 
     const game: any = {
       scope, tiles: [], selectedTile: null,
@@ -213,32 +182,31 @@ export default function JigsawPage() {
     const doScatter = () => {
       const cx = WORLD_CX, cy = WORLD_CY
       const hw = puzzleWidth/2, hh = puzzleHeight/2
-      const pad = 20      // min gap from assembly edge
-      const spread = 55   // max distance beyond pad — tight ring
+      const pad = 30  // gap between assembly edge and nearest scatter position
 
       const shuffled = [...game.tiles].sort(() => Math.random() - 0.5)
       shuffled.forEach((tile: any) => {
         let tx: number, ty: number, attempts = 0
         do {
           const side = Math.floor(Math.random() * 4)
-          if (side === 0) { // left
-            tx = cx - hw - pad - Math.random() * spread
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
+          if      (side === 0) { // left
+            tx = cx - hw - pad - Math.random() * 500
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
           } else if (side === 1) { // right
-            tx = cx + hw + pad + Math.random() * spread
-            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2)
+            tx = cx + hw + pad + Math.random() * 500
+            ty = cy + (Math.random() - 0.5) * (hh * 2 + pad * 2 + 400)
           } else if (side === 2) { // top
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
-            ty = cy - hh - pad - Math.random() * spread
-          } else { // bottom
-            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2)
-            ty = cy + hh + pad + Math.random() * spread
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
+            ty = cy - hh - pad - Math.random() * 400
+          } else {               // bottom
+            tx = cx + (Math.random() - 0.5) * (hw * 2 + pad * 2 + 400)
+            ty = cy + hh + pad + Math.random() * 400
           }
           attempts++
         } while (
           attempts < 30 &&
-          Math.abs(tx - cx) < hw + 10 &&
-          Math.abs(ty - cy) < hh + 10
+          Math.abs(tx - cx) < hw + 20 &&
+          Math.abs(ty - cy) < hh + 20
         )
         setTileGridCenter(tile, new paper.Point(tx, ty))
       })
@@ -326,21 +294,10 @@ export default function JigsawPage() {
     let lastPinchDist = 0, lastMidX = 0, lastMidY = 0
     let tDragPiece = false, tPanning = false
 
-    // Returns project-space point for hit testing and piece dragging
     const touchToWorld = (t: Touch) => {
-      const r = canvas.getBoundingClientRect()
+      const r  = canvas.getBoundingClientRect()
+      // Use CSS-pixel offset relative to canvas (same as offsetX/offsetY that Paper.js uses for mouse events)
       return paper.view.viewToProject(new paper.Point(t.clientX - r.left, t.clientY - r.top))
-    }
-    // Returns raw CSS-pixel point (for stable delta calculation during pan)
-    const touchToScreen = (t: Touch) => {
-      const r = canvas.getBoundingClientRect()
-      return new paper.Point(t.clientX - r.left, t.clientY - r.top)
-    }
-    // Convert a CSS-pixel delta to project-space delta at current zoom
-    const screenDeltaToWorld = (dx: number, dy: number) => {
-      const a = paper.view.viewToProject(new paper.Point(0, 0))
-      const b = paper.view.viewToProject(new paper.Point(dx, dy))
-      return b.subtract(a)
     }
 
     canvas.addEventListener('touchstart', (e: TouchEvent) => {
@@ -353,13 +310,12 @@ export default function JigsawPage() {
           let t = hit.item
           while (t && !t.gridPosition && t.parent) t = t.parent
           if (t?.gridPosition) {
-            game.selectedTile = t; tDragPiece = true
-            game.lastPoint = touchToScreen(ts[0])
+            game.selectedTile = t; tDragPiece = true; game.lastPoint = pt
             game.zIndex++; t.pieceGroup.forEach((p: any) => { p.bringToFront(); p.data.zIndex = game.zIndex })
             return
           }
         }
-        tPanning = true; game.lastPoint = touchToScreen(ts[0])
+        tPanning = true; game.lastPoint = pt
       } else if (ts.length === 2) {
         tDragPiece = false; tPanning = false
         lastPinchDist = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
@@ -371,15 +327,14 @@ export default function JigsawPage() {
       e.preventDefault()
       const ts = Array.from(e.touches)
       if (ts.length === 1) {
-        const screenPt = touchToScreen(ts[0])
+        const pt = touchToWorld(ts[0])
         if (tDragPiece && game.selectedTile && game.lastPoint) {
-          const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
+          const d = pt.subtract(game.lastPoint)
           game.selectedTile.pieceGroup.forEach((p: any) => p.position = p.position.add(d))
-          game.lastPoint = screenPt; paper.view.draw()
+          game.lastPoint = pt; paper.view.draw()
         } else if (tPanning && game.lastPoint) {
-          const d = screenDeltaToWorld(screenPt.x - game.lastPoint.x, screenPt.y - game.lastPoint.y)
-          paper.view.translate(d)
-          game.lastPoint = screenPt
+          paper.view.translate(pt.subtract(game.lastPoint))
+          game.lastPoint = pt
         }
       } else if (ts.length === 2) {
         const dist = Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY)
@@ -424,18 +379,18 @@ export default function JigsawPage() {
     gameRef.current = game
     paper.view.draw()
 
-    // Fit view — double RAF ensures canvas layout is settled after any re-render
-    const fitView = () => {
-      const r   = canvas.getBoundingClientRect()
-      if (r.width === 0) { requestAnimationFrame(fitView); return }
-      const showW = puzzleWidth  + (20 + 55 + 20) * 2
-      const showH = puzzleHeight + (20 + 55 + 20) * 2
-      const zoom  = Math.min(r.width / showW, r.height / showH) * 0.9
+    // Fit the entire puzzle+scatter area into view, centered on assembly
+    requestAnimationFrame(() => {
+      const vw = canvas.width  / (window.devicePixelRatio || 1)
+      const vh = canvas.height / (window.devicePixelRatio || 1)
+      // Total area to show: assembly + scatter pad on all sides
+      const showW = puzzleWidth  + (30 + 50) * 2   // pad + maxSpread each side
+      const showH = puzzleHeight + (30 + 50) * 2
+      const zoom  = Math.min(vw / showW, vh / showH) * 0.92
       paper.view.zoom   = zoom
       paper.view.center = new paper.Point(WORLD_CX, WORLD_CY)
       paper.view.draw()
-    }
-    requestAnimationFrame(() => requestAnimationFrame(fitView))
+    })
   }
 
   // ── UI actions ─────────────────────────────────────────────────────────────
@@ -448,44 +403,26 @@ export default function JigsawPage() {
 
   const handleDiff = (cols: number, rows: number) => {
     setNumCols(cols); setNumRows(rows); setShowDiff(false); setComplete(false)
+    if (image) setTimeout(() => initPuzzle(image, cols, rows), 50)
   }
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     const url = URL.createObjectURL(file)
     const img = new Image()
-    img.onload = () => { setComplete(false); setImageSrc(url); setImage(img) }
+    img.onload = () => { setImage(img); setImageSrc(url); setComplete(false); setTimeout(() => initPuzzle(img), 100) }
     img.src = url
   }
 
   const loadSample = (url: string) => {
     const img = new Image(); img.crossOrigin = 'anonymous'
-    img.onload = () => { setComplete(false); setImageSrc(url); setImage(img) }
+    img.onload = () => { setImage(img); setImageSrc(url); setComplete(false); setTimeout(() => initPuzzle(img), 100) }
     img.src = url
   }
 
-  // If Paper.js already on window (e.g. returning from New Game), set loaded immediately
   useEffect(() => {
-    if (image && !paperLoaded && (window as any).paper) setPaperLoaded(true)
-  }, [image])
-
-  // Fires after React has rendered the canvas (image mount or difficulty change)
-  useEffect(() => {
-    if (!paperLoaded || !image) return
-    // Retry until canvas has real dimensions — mobile flex layout can be slow
-    let attempts = 0
-    const tryInit = () => {
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const rect = canvas.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) {
-        if (attempts++ < 20) setTimeout(tryInit, 50)
-        return
-      }
-      initPuzzle(image)
-    }
-    requestAnimationFrame(tryInit)
-  }, [paperLoaded, image, numCols, numRows])
+    if (paperLoaded && image) initPuzzle(image)
+  }, [paperLoaded, numCols, numRows])
 
   // ── Styles ─────────────────────────────────────────────────────────────────
   const toolBtn: React.CSSProperties = {
@@ -498,15 +435,16 @@ export default function JigsawPage() {
 
   return (
     <>
+      <Script
+        src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
+        onLoad={() => setPaperLoaded(true)}
+      />
+
       {/* ── Setup screen ── */}
       {!image && (
-        <div style={{ minHeight: '100svh', background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', padding: '40px 20px', fontFamily: 'ui-sans-serif,system-ui,sans-serif', boxSizing: 'border-box' as const }}>
+        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', padding: '40px 20px', fontFamily: 'ui-sans-serif,system-ui,sans-serif' }}>
           <div style={{ maxWidth: 480, margin: '0 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <a href="/amhgames" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#a78bfa', textDecoration: 'none', fontSize: 13, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}><Home size={14} /> Home</a>
-              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em', margin: 0 }}>JIGSAW</h1>
-              <div style={{ width: 80 }} />
-            </div>
+            <h1 style={{ textAlign: 'center', fontSize: 36, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em', marginBottom: 4 }}>JIGSAW</h1>
             <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: 12, marginBottom: 28, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pick an image to start</p>
 
             <label style={{ display: 'block', padding: '30px 20px', borderRadius: 16, border: '2px dashed rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.05)', cursor: 'pointer', textAlign: 'center', marginBottom: 18 }}>
@@ -543,47 +481,26 @@ export default function JigsawPage() {
 
       {/* ── Game screen ── */}
       {image && (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden', position: 'fixed', inset: 0 }}>
-          <Script
-            src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
-            onLoad={() => setPaperLoaded(true)}
-            onError={() => {
-              // CDN failed — try loading Paper.js a different way
-              const s = document.createElement('script')
-              s.src = 'https://unpkg.com/paper@0.12.17/dist/paper-full.min.js'
-              s.onload = () => setPaperLoaded(true)
-              document.head.appendChild(s)
-            }}
-          />
-
-          {/* Portrait lock overlay */}
-          <div style={{ display: 'none', position: 'fixed', inset: 0, zIndex: 100, background: '#0e0917', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }} className="portrait-overlay">
-            <div style={{ fontSize: 48 }}>↻</div>
-            <p style={{ color: '#c084fc', fontWeight: 700, fontSize: 18, textAlign: 'center', margin: 0 }}>Rotate to landscape</p>
-            <p style={{ color: '#a78bfa', fontSize: 13, textAlign: 'center', margin: 0 }}>Jigsaw is best played horizontally</p>
-          </div>
-          <style>{`@media (orientation: portrait) { .portrait-overlay { display: flex !important; } }`}</style>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden' }}>
 
           {/* Navbar */}
-          <div style={{ flexShrink: 0, height: 46, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
+          <div style={{ flexShrink: 0, height: 50, background: 'rgba(14,9,23,0.97)', borderBottom: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', zIndex: 30 }}>
             <span style={{ fontSize: 16, fontWeight: 900, color: '#c084fc', letterSpacing: '0.12em' }}>JIGSAW</span>
             <span style={{ fontSize: 11, color: '#a78bfa' }}>{numCols}×{numRows} · {numCols*numRows}pc</span>
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
 
-          {/* Canvas area */}
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#ffffff' }}>
+          {/* Canvas — fills remaining space */}
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
-              style={{ display: 'block', width: '100%', height: '100%', background: '#ffffff' }}
+              style={{ display: 'block', width: '100%', height: '100%' }}
             />
           </div>
 
           {/* Toolbar */}
           <div style={{ flexShrink: 0, height: 60, background: 'rgba(14,9,23,0.97)', borderTop: '1px solid rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0 10px', zIndex: 30 }}>
-            <a href="/amhgames" style={{ ...toolBtn, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Home"><Home size={18} /></a>
-            <div style={{ width: 1, height: 24, background: 'rgba(168,85,247,0.3)' }} />
             <button style={toolBtn} onClick={handleScatter} title="Scatter"><Sparkles size={18} /></button>
             <button style={toolBtn} onClick={() => setShowPreview(true)} title="Preview"><Eye size={18} /></button>
             <div style={{ width: 1, height: 24, background: 'rgba(168,85,247,0.3)' }} />
