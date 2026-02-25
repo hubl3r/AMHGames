@@ -48,6 +48,13 @@ export default function JigsawPage() {
     const Paper  = window.paper
     const canvas = canvasRef.current
 
+    // Set canvas pixel dimensions to match its CSS layout size
+    // Paper.js reads .width/.height attributes, not CSS — critical for mobile
+    const rect = canvas.getBoundingClientRect()
+    const dpr  = window.devicePixelRatio || 1
+    canvas.width  = Math.round(rect.width  * dpr)
+    canvas.height = Math.round(rect.height * dpr)
+
     // Fresh PaperScope each time so re-init after "New Game" starts completely clean
     const paper = new Paper.PaperScope()
     paper.setup(canvas)
@@ -56,7 +63,7 @@ export default function JigsawPage() {
 
     // ── Background: CSS on canvas wrapper — no canvas generation needed ────────
     // Paper.js canvas is transparent; wood image is a CSS background-image
-    ;(canvas as HTMLCanvasElement).style.background = '#ffffff'
+
     // ─────────────────────────────────────────────────────────────────────────
 
     const tileWidth   = 100
@@ -460,7 +467,19 @@ export default function JigsawPage() {
   // Fires after React has rendered the canvas (image mount or difficulty change)
   useEffect(() => {
     if (!paperLoaded || !image) return
-    requestAnimationFrame(() => initPuzzle(image))
+    // Retry until canvas has real dimensions — mobile flex layout can be slow
+    let attempts = 0
+    const tryInit = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) {
+        if (attempts++ < 20) setTimeout(tryInit, 50)
+        return
+      }
+      initPuzzle(image)
+    }
+    requestAnimationFrame(tryInit)
   }, [paperLoaded, image, numCols, numRows])
 
   // ── Styles ─────────────────────────────────────────────────────────────────
@@ -541,7 +560,7 @@ export default function JigsawPage() {
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
 
-          {/* Canvas — white background */}
+          {/* Canvas area */}
           <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#ffffff' }}>
             <canvas
               ref={canvasRef}
