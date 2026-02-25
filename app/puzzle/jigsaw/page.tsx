@@ -56,7 +56,7 @@ export default function JigsawPage() {
 
     // ── Background: CSS on canvas wrapper — no canvas generation needed ────────
     // Paper.js canvas is transparent; wood image is a CSS background-image
-    ;(canvas as HTMLCanvasElement).style.background = 'transparent'
+    ;(canvas as HTMLCanvasElement).style.background = '#ffffff'
     // ─────────────────────────────────────────────────────────────────────────
 
     const tileWidth   = 100
@@ -541,8 +541,8 @@ export default function JigsawPage() {
             <button onClick={() => setImage(null)} style={{ ...toolBtn, width: 'auto', padding: '0 12px', fontSize: 12, height: 34 }}>New Game</button>
           </div>
 
-          {/* Canvas — wood photo background, Paper.js canvas transparent on top */}
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', backgroundImage: "url('https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=800&q=75&fit=crop')", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+          {/* Canvas — white background */}
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#ffffff' }}>
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
