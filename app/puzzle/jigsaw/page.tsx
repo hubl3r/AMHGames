@@ -464,6 +464,11 @@ export default function JigsawPage() {
     img.src = url
   }
 
+  // If Paper.js already on window (e.g. returning from New Game), set loaded immediately
+  useEffect(() => {
+    if (image && !paperLoaded && (window as any).paper) setPaperLoaded(true)
+  }, [image])
+
   // Fires after React has rendered the canvas (image mount or difficulty change)
   useEffect(() => {
     if (!paperLoaded || !image) return
@@ -493,14 +498,9 @@ export default function JigsawPage() {
 
   return (
     <>
-      <Script
-        src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
-        onLoad={() => setPaperLoaded(true)}
-      />
-
       {/* ── Setup screen ── */}
       {!image && (
-        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', padding: '40px 20px', fontFamily: 'ui-sans-serif,system-ui,sans-serif' }}>
+        <div style={{ minHeight: '100svh', background: 'linear-gradient(135deg,#1a1423,#2d1b3d,#1a1423)', padding: '40px 20px', fontFamily: 'ui-sans-serif,system-ui,sans-serif', boxSizing: 'border-box' as const }}>
           <div style={{ maxWidth: 480, margin: '0 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
               <a href="/amhgames" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#a78bfa', textDecoration: 'none', fontSize: 13, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}><Home size={14} /> Home</a>
@@ -544,6 +544,17 @@ export default function JigsawPage() {
       {/* ── Game screen ── */}
       {image && (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0e0917', fontFamily: 'ui-sans-serif,system-ui,sans-serif', overflow: 'hidden', position: 'fixed', inset: 0 }}>
+          <Script
+            src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"
+            onLoad={() => setPaperLoaded(true)}
+            onError={() => {
+              // CDN failed — try loading Paper.js a different way
+              const s = document.createElement('script')
+              s.src = 'https://unpkg.com/paper@0.12.17/dist/paper-full.min.js'
+              s.onload = () => setPaperLoaded(true)
+              document.head.appendChild(s)
+            }}
+          />
 
           {/* Portrait lock overlay */}
           <div style={{ display: 'none', position: 'fixed', inset: 0, zIndex: 100, background: '#0e0917', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }} className="portrait-overlay">
@@ -565,7 +576,7 @@ export default function JigsawPage() {
             <canvas
               ref={canvasRef}
               id="jigsaw-canvas"
-              style={{ display: 'block', width: '100%', height: '100%' }}
+              style={{ display: 'block', width: '100%', height: '100%', background: '#ffffff' }}
             />
           </div>
 
